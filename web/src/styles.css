@@ -1,0 +1,158 @@
+/* Design tokens ported from andrewmacleod.com (StaticSite/styles/main.css) so the
+   family tree looks like part of the main site. Keep the two in step. */
+:root {
+  --bg: #ffffff;
+  --text: #111111;
+  --muted: #444444;
+  --link: #1a73e8;
+  --header-bg: #f0f4ff;
+  --card-bg: #ffffff;
+  --border: #d0d0d0;
+  --footer-bg: #e6f0ff;
+  --focus: #1a73e8;
+  --shadow: rgba(0, 0, 0, 0.05);
+  --max-width: min(900px, 90%);
+  --radius: 0.5rem;
+  --header-height: 64px;
+  --success: #1e7d32;
+  --danger: #b3261e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0b10;
+    --text: #e6eef8;
+    --muted: #cfd8e3;
+    --link: #7ab4ff;
+    --header-bg: #0f1220;
+    --card-bg: #111219;
+    --border: #22242a;
+    --footer-bg: #07070a;
+    --focus: #7ab4ff;
+    --shadow: rgba(0, 0, 0, 0.6);
+    --success: #7fd48a;
+    --danger: #ff8a80;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --border: #9aa0a6;
+    --shadow: rgba(0, 0, 0, 0.12);
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --bg: Canvas;
+    --text: CanvasText;
+    --link: Highlight;
+    --header-bg: Canvas;
+    --card-bg: Canvas;
+    --border: Highlight;
+    --footer-bg: Canvas;
+    --focus: Highlight;
+    --success: CanvasText;
+    --danger: CanvasText;
+  }
+
+  * {
+    forced-color-adjust: none;
+  }
+}
+
+/* --------- RESET / BASE --------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text);
+  background-color: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color-scheme: light dark;
+  -webkit-text-size-adjust: 100%;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+a:hover,
+a:focus {
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+/* --------- LAYOUT --------- */
+.site-header {
+  display: flex;
+  align-items: center;
+  height: var(--header-height);
+  padding: 1rem 2rem;
+  background-color: var(--header-bg);
+  border-bottom: 2px solid var(--border);
+}
+
+.container {
+  flex: 1;
+  width: var(--max-width);
+  margin: 0 auto;
+  padding: 2rem 0;
+}
+
+h1 {
+  font-size: clamp(2rem, 6vw, 3rem);
+  font-weight: 800;
+  line-height: 1.2;
+  margin-bottom: 1rem;
+}
+
+.site-footer {
+  text-align: center;
+  padding: 2rem 0;
+  font-size: 0.95rem;
+  border-top: 2px solid var(--border);
+  background-color: var(--footer-bg);
+}
+
+/* --------- API STATUS --------- */
+.api-status {
+  margin-top: 1.5rem;
+  color: var(--muted);
+}
+
+.api-status--healthy {
+  color: var(--success);
+}
+
+.api-status--unavailable {
+  color: var(--danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
