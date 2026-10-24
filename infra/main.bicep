@@ -16,8 +16,8 @@ param namePrefix string = 'familytree'
 @description('API container image. The deploy workflow passes the image that is currently running, so redeploying the infrastructure does not roll the API back. The default is only used on the very first deployment.')
 param apiImage string = 'mcr.microsoft.com/dotnet/samples:aspnetapp'
 
-@description('Extra browser origins allowed to call the API, such as a custom domain for the web app.')
-param additionalAllowedOrigins array = []
+@description('Custom domain for the web app, such as family.example.com. Leave empty until a DNS CNAME record for it points at the Static Web App\'s default hostname, or the deployment fails validation.')
+param webCustomDomain string = ''
 
 // Built-in role: AcrPull.
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
@@ -86,12 +86,25 @@ resource web 'Microsoft.Web/staticSites@2024-04-01' = {
   properties: {}
 }
 
-// CORS origins for the API: the web app first, then any extras (ASP.NET Core reads
-// Cors__AllowedOrigins__0, __1, ... as the Cors:AllowedOrigins array).
-var extraOriginSettings = [for (origin, i) in additionalAllowedOrigins: {
-  name: 'Cors__AllowedOrigins__${i + 1}'
-  value: origin
-}]
+// Azure checks the CNAME record, then issues and renews a free certificate for the domain.
+resource webDomain 'Microsoft.Web/staticSites/customDomains@2024-04-01' = if (!empty(webCustomDomain)) {
+  parent: web
+  name: webCustomDomain
+  properties: {
+    validationMethod: 'cname-delegation'
+  }
+}
+
+// CORS origins for the API: the web app's default address, plus its custom domain if it
+// has one. ASP.NET Core reads Cors__AllowedOrigins__0, __1, ... as the Cors:AllowedOrigins array.
+var customDomainOriginSettings = empty(webCustomDomain)
+  ? []
+  : [
+      {
+        name: 'Cors__AllowedOrigins__1'
+        value: 'https://${webCustomDomain}'
+      }
+    ]
 
 resource api 'Microsoft.App/containerApps@2025-01-01' = {
   name: '${namePrefix}-api'
@@ -135,7 +148,7 @@ resource api 'Microsoft.App/containerApps@2025-01-01' = {
                 value: 'https://${web.properties.defaultHostname}'
               }
             ],
-            extraOriginSettings
+            customDomainOriginSettings
           )
         }
       ]
@@ -158,3 +171,4 @@ output apiName string = api.name
 output apiUrl string = 'https://${api.properties.configuration.ingress.fqdn}'
 output webName string = web.name
 output webUrl string = 'https://${web.properties.defaultHostname}'
+output webCustomUrl string = empty(webCustomDomain) ? '' : 'https://${webCustomDomain}'
