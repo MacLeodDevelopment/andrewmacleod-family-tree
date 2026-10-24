@@ -17,12 +17,15 @@ GitHub signs in to Azure with **OpenID Connect** (a federated credential). There
 ## Prerequisites
 
 - Azure CLI 2.60 or later, and an Azure subscription where you are an **Owner**.
-- Run the commands below in **Git Bash**. `MSYS_NO_PATHCONV=1` stops Git Bash rewriting Azure resource IDs (which start with `/`) as Windows paths.
+- Run the commands below in **Git Bash**, all in the **same window**, because later steps use variables set in earlier ones.
+  - `export MSYS_NO_PATHCONV=1` stops Git Bash rewriting Azure resource IDs (which start with `/`) as Windows paths. Without it, `az` fails with `MissingSubscription`.
+  - `set +H` turns off history expansion, so the `!` in the role condition in step 5 isn't treated as a history command (`event not found`).
 
 ## 1. Sign in and choose names
 
 ```sh
 export MSYS_NO_PATHCONV=1
+set +H
 az login
 az account set --subscription "<your subscription name or ID>"
 
@@ -76,16 +79,33 @@ Scoped to the resource group only:
 
 ```sh
 SCOPE="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
-ACR_PULL=7f951dda-4ed3-4680-a7ca-43fe172d538d
+echo "$SCOPE $PRINCIPAL_ID"   # check both are filled in before continuing
 
 az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal \
   --role Contributor --scope "$SCOPE"
 
+# The condition is passed from a file (the CLI's @file syntax) because shells mangle
+# its brackets, quotes and `!`. 7f951dda-... is the built-in AcrPull role.
+cat > acr-pull-only.condition <<'EOF'
+((!(ActionMatches{'Microsoft.Authorization/roleAssignments/write'})) OR (@Request[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {7f951dda-4ed3-4680-a7ca-43fe172d538d})) AND ((!(ActionMatches{'Microsoft.Authorization/roleAssignments/delete'})) OR (@Resource[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {7f951dda-4ed3-4680-a7ca-43fe172d538d}))
+EOF
+
 az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal \
   --role "Role Based Access Control Administrator" --scope "$SCOPE" \
-  --condition-version 2.0 \
-  --condition "((!(ActionMatches{'Microsoft.Authorization/roleAssignments/write'})) OR (@Request[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {$ACR_PULL})) AND ((!(ActionMatches{'Microsoft.Authorization/roleAssignments/delete'})) OR (@Resource[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {$ACR_PULL}))"
+  --condition-version 2.0 --condition @acr-pull-only.condition
+
+rm acr-pull-only.condition
 ```
+
+The CLI warns that `--condition-version` is in preview; that's expected.
+
+Check both roles are in place:
+
+```sh
+az role assignment list --assignee "$PRINCIPAL_ID" --all --query "[].{role:roleDefinitionName, condition:condition != null}" -o table
+```
+
+You should see **Contributor** (condition `False`) and **Role Based Access Control Administrator** (condition `True`).
 
 ## 6. Configure GitHub
 
