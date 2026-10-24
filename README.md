@@ -134,10 +134,14 @@ Only jobs in this repo's `production` GitHub environment match. The numbers are 
 
 A **managed identity** is an Azure-managed service account. It has no password; Azure issues tokens for it to whatever is allowed to use it.
 
-What the deploy identity can do is set by **Azure RBAC** (role-based access control) role assignments, scoped to the resource group only:
+What the deploy identity can do is set by **Azure RBAC** (role-based access control) role assignments. The first two are scoped to the resource group only:
 
 - **Contributor**: create and change resources.
 - **Role Based Access Control Administrator**, restricted by a *condition* so that the only role it can grant or remove is **AcrPull**. Bicep needs this to let the API's identity pull images. The condition stops a compromised pipeline from granting itself anything more.
+
+The third is at subscription scope, because that's where Azure puts the thing it needs:
+
+- **Web Operation Status Reader**, a custom role allowing only `Microsoft.Web/locations/*/read`. Some Static Web Apps operations, such as adding a custom domain, are long-running. Azure tracks their progress in a status resource under the *subscription*, not the resource group, and the deployment polls it to know when the operation has finished.
 
 **The Container App pulls from the registry** using a second managed identity, `familytree-api-identity`, which has AcrPull on the registry. So there's no registry password.
 
@@ -186,6 +190,11 @@ These are mostly lessons learned the hard way.
   az deployment group validate -g rg-familytree --template-file infra/main.bicep --parameters apiImage=mcr.microsoft.com/dotnet/samples:aspnetapp
   ```
 
+- **The Infrastructure step runs for ages (over 15 minutes) without finishing.**
+  - Find what it's waiting on: `az deployment operation group list -g rg-familytree -n familytree-<run number> --query "[?properties.provisioningState!='Succeeded']"`, and read the `statusMessage`.
+  - We hit this when adding the custom domain. The deploy identity lacked the subscription-level **Web Operation Status Reader** role, so every status check got `403 AuthorizationFailed` on `staticSitesOperationStatuses/read`, and Azure kept retrying for hours. The domain itself had been ready for an hour.
+  - Fix the permission, cancel the stuck deployment (`az deployment group cancel -g rg-familytree -n familytree-<run number>`) and the workflow run, then deploy again.
+  - Legitimately, a first-time custom domain can take 15–30 minutes while Azure validates it and issues the certificate.
 - **`az deployment group what-if` shows "Modify" on most resources even when nothing has changed.** That's noise from properties Azure fills in itself, which aren't in the template. Look at the property-level differences before worrying.
 - **Running `az` in Git Bash.** Git Bash's Unix emulation gets in the way in three ways:
   - It rewrites arguments that look like paths. Azure resource IDs start with `/`, so they're mangled and you get `MissingSubscription`. Fix: `export MSYS_NO_PATHCONV=1`.

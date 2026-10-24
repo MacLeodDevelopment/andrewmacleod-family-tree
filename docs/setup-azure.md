@@ -76,10 +76,14 @@ If the deploy fails with `AADSTS700213: No matching federated identity record fo
 
 ## 5. Give it permission to deploy
 
-Scoped to the resource group only:
+Three role assignments. The first two are scoped to the resource group only:
 
 - **Contributor**: create and update the resources.
 - **Role Based Access Control Administrator**, restricted by a condition so the only role it can grant or remove is **AcrPull**. Bicep needs this to let the API's identity pull images.
+
+The third is a small custom role at subscription scope:
+
+- **Web Operation Status Reader**: read-only access to `Microsoft.Web/locations/*`. Azure tracks long-running Static Web Apps operations, such as adding a custom domain, in a status resource at subscription level, outside the resource group. Without this role the deployment can't check that status. It gets `403 AuthorizationFailed` on `staticSitesOperationStatuses/read` and retries indefinitely, so the Infrastructure step appears to hang. The role grants nothing beyond reading those statuses.
 
 ```sh
 SCOPE="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
@@ -99,17 +103,34 @@ az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-princi
   --condition-version 2.0 --condition @acr-pull-only.condition
 
 rm acr-pull-only.condition
+
+# A custom role, defined in a file for the same quoting reasons.
+cat > web-operation-status-reader.json <<EOF
+{
+  "Name": "Web Operation Status Reader",
+  "Description": "Read the status of long-running Microsoft.Web operations (such as Static Web Apps custom domains), which Azure tracks at subscription scope.",
+  "Actions": ["Microsoft.Web/locations/*/read"],
+  "NotActions": [],
+  "AssignableScopes": ["/subscriptions/$SUBSCRIPTION_ID"]
+}
+EOF
+
+az role definition create --role-definition @web-operation-status-reader.json
+rm web-operation-status-reader.json
+
+az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal \
+  --role "Web Operation Status Reader" --scope "/subscriptions/$SUBSCRIPTION_ID"
 ```
 
-The CLI warns that `--condition-version` is in preview; that's expected.
+The CLI warns that `--condition-version` is in preview; that's expected. If the last command says the role doesn't exist, wait a minute for the new role definition to replicate, then run it again.
 
-Check both roles are in place:
+Check all three roles are in place:
 
 ```sh
-az role assignment list --assignee "$PRINCIPAL_ID" --all --query "[].{role:roleDefinitionName, condition:condition != null}" -o table
+az role assignment list --assignee "$PRINCIPAL_ID" --all --query "[].{role:roleDefinitionName, scope:scope, condition:condition != null}" -o table
 ```
 
-You should see **Contributor** (condition `False`) and **Role Based Access Control Administrator** (condition `True`).
+You should see **Contributor** and **Role Based Access Control Administrator** on the resource group (condition `False` and `True`), and **Web Operation Status Reader** on the subscription.
 
 ## 6. Configure GitHub
 
