@@ -38,6 +38,7 @@ jobs:
       apiUrl: ${{ steps.deploy.outputs.apiUrl }}
       webName: ${{ steps.deploy.outputs.webName }}
       webUrl: ${{ steps.deploy.outputs.webUrl }}
+      webCustomUrl: ${{ steps.deploy.outputs.webCustomUrl }}
     steps:
       - uses: actions/checkout@v7
 
@@ -56,6 +57,8 @@ jobs:
             --query "properties.template.containers[0].image" --output tsv 2>/dev/null || true)
           echo "image=${image:-mcr.microsoft.com/dotnet/samples:aspnetapp}" >> "$GITHUB_OUTPUT"
 
+      # WEB_CUSTOM_DOMAIN is an optional environment variable (for example family.example.com).
+      # Set it only once the domain's DNS CNAME points at the Static Web App.
       - name: Deploy Bicep
         id: deploy
         run: |
@@ -63,14 +66,17 @@ jobs:
             --resource-group "$RESOURCE_GROUP" \
             --name "familytree-${{ github.run_number }}" \
             --template-file infra/main.bicep \
-            --parameters apiImage="${{ steps.current.outputs.image }}" \
+            --parameters apiImage="${{ steps.current.outputs.image }}" webCustomDomain="${{ vars.WEB_CUSTOM_DOMAIN }}" \
             --query properties.outputs --output json)
-          for key in registryName registryLoginServer apiName apiUrl webName webUrl; do
+          for key in registryName registryLoginServer apiName apiUrl webName webUrl webCustomUrl; do
             echo "$key=$(jq -r ".$key.value" <<< "$outputs")" >> "$GITHUB_OUTPUT"
           done
           {
             echo "### Deployed"
             echo "- Web app: $(jq -r '.webUrl.value' <<< "$outputs")"
+            if [ -n "$(jq -r '.webCustomUrl.value' <<< "$outputs")" ]; then
+              echo "- Web app (custom domain): $(jq -r '.webCustomUrl.value' <<< "$outputs")"
+            fi
             echo "- API: $(jq -r '.apiUrl.value' <<< "$outputs")"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -110,6 +116,18 @@ jobs:
       # The API scales to zero, so allow time for a cold start.
       - name: Smoke test
         run: curl --fail --silent --show-error --retry 10 --retry-delay 6 --retry-all-errors "${{ needs.infra.outputs.apiUrl }}/health"
+
+      # The web app on its custom domain must be allowed to call the API (CORS).
+      - name: Smoke test the custom domain's API access
+        if: needs.infra.outputs.webCustomUrl != ''
+        run: |
+          allowed=$(curl --fail --silent --show-error --dump-header - --output /dev/null \
+            --header "Origin: ${{ needs.infra.outputs.webCustomUrl }}" "${{ needs.infra.outputs.apiUrl }}/health" \
+            | tr -d '\r' | grep -i '^access-control-allow-origin:' | cut -d' ' -f2)
+          if [ "$allowed" != "${{ needs.infra.outputs.webCustomUrl }}" ]; then
+            echo "::error::The API does not allow ${{ needs.infra.outputs.webCustomUrl }} (got '${allowed}')"
+            exit 1
+          fi
 
   web:
     name: Web app

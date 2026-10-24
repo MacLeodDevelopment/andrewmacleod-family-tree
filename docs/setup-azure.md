@@ -138,3 +138,39 @@ The job summaries show the web app and API URLs (`*.azurestaticapps.net` and `*.
 ## 8. Recommended: a budget alert
 
 In the Azure portal, open **Cost Management → Budgets** and add a monthly budget of about £10 on the resource group, with an email alert at 80%.
+
+## 9. Custom domain
+
+The web app is served on `family.andrewmacleod.com`. Azure checks the DNS record, then issues and renews a free TLS certificate. The API keeps its default `*.azurecontainerapps.io` address; visitors never see it.
+
+The order matters: Azure refuses the domain until the DNS record exists.
+
+1. **Find the Static Web App's default hostname.** It's the web app address in the Deploy summary, without `https://`, or:
+
+   ```sh
+   az staticwebapp show --resource-group rg-familytree --name familytree-web --query defaultHostname -o tsv
+   ```
+
+2. **Add a CNAME record** where the domain's DNS is hosted (for andrewmacleod.com that's GoDaddy: **My Products → Domains → andrewmacleod.com → DNS → Add New Record**):
+
+   | Type | Name | Value | TTL |
+   |---|---|---|---|
+   | CNAME | `family` | the default hostname from step 1 | 1 hour |
+
+3. **Check the record has propagated** (usually a few minutes). The answer should include the default hostname:
+
+   ```sh
+   nslookup -type=CNAME family.andrewmacleod.com 8.8.8.8
+   ```
+
+4. **Tell the deployment about the domain.** In GitHub, add a variable to the `production` environment:
+
+   | Name | Value |
+   |---|---|
+   | `WEB_CUSTOM_DOMAIN` | `family.andrewmacleod.com` |
+
+5. **Deploy** by merging to `main` or running **Actions → Deploy → Run workflow**. The infrastructure step adds the domain to the Static Web App and to the API's allowed origins (CORS). A smoke test then checks the API accepts calls from the custom domain.
+
+Azure can take a while to issue the certificate after the domain is added (normally minutes, occasionally an hour or more). Until then, `https://family.andrewmacleod.com` may show a certificate warning. Its status is under **Static Web App → Custom domains** in the portal.
+
+To remove the domain, delete the `WEB_CUSTOM_DOMAIN` variable and redeploy, then delete the domain under **Custom domains** in the portal (the deployment only adds it), and finally remove the CNAME record.
