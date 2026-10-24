@@ -1,9 +1,9 @@
 name: CI
 
+# Runs on pull requests, and is called by deploy.yml before anything is deployed from main.
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
