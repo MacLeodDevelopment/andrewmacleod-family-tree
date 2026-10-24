@@ -1,0 +1,165 @@
+name: Deploy
+
+# Every push to main is tested, then deployed to production.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+  API_NAME: familytree-api
+  AZURE_EXTENSION_USE_DYNAMIC_INSTALL: yes_without_prompt
+
+jobs:
+  ci:
+    name: Test
+    uses: ./.github/workflows/ci.yml
+
+  infra:
+    name: Infrastructure
+    needs: ci
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      registryName: ${{ steps.deploy.outputs.registryName }}
+      registryLoginServer: ${{ steps.deploy.outputs.registryLoginServer }}
+      apiName: ${{ steps.deploy.outputs.apiName }}
+      apiUrl: ${{ steps.deploy.outputs.apiUrl }}
+      webName: ${{ steps.deploy.outputs.webName }}
+      webUrl: ${{ steps.deploy.outputs.webUrl }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # Redeploy with the image that is already running, so infrastructure changes
+      # never roll the API back. On the first run there is no API yet.
+      - name: Find the running API image
+        id: current
+        run: |
+          image=$(az containerapp show --resource-group "$RESOURCE_GROUP" --name "$API_NAME" \
+            --query "properties.template.containers[0].image" --output tsv 2>/dev/null || true)
+          echo "image=${image:-mcr.microsoft.com/dotnet/samples:aspnetapp}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Bicep
+        id: deploy
+        run: |
+          outputs=$(az deployment group create \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "familytree-${{ github.run_number }}" \
+            --template-file infra/main.bicep \
+            --parameters apiImage="${{ steps.current.outputs.image }}" \
+            --query properties.outputs --output json)
+          for key in registryName registryLoginServer apiName apiUrl webName webUrl; do
+            echo "$key=$(jq -r ".$key.value" <<< "$outputs")" >> "$GITHUB_OUTPUT"
+          done
+          {
+            echo "### Deployed"
+            echo "- Web app: $(jq -r '.webUrl.value' <<< "$outputs")"
+            echo "- API: $(jq -r '.apiUrl.value' <<< "$outputs")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  api:
+    name: API
+    needs: infra
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push the container image
+        run: |
+          az acr login --name "${{ needs.infra.outputs.registryName }}"
+          dotnet publish src/FamilyTree.Api --configuration Release -t:PublishContainer \
+            -p:ContainerRegistry="${{ needs.infra.outputs.registryLoginServer }}" \
+            -p:ContainerImageTag="${{ github.sha }}"
+
+      - name: Deploy the new image
+        run: |
+          az containerapp update --resource-group "$RESOURCE_GROUP" --name "${{ needs.infra.outputs.apiName }}" \
+            --image "${{ needs.infra.outputs.registryLoginServer }}/familytree-api:${{ github.sha }}"
+
+      # The API scales to zero, so allow time for a cold start.
+      - name: Smoke test
+        run: curl --fail --silent --show-error --retry 10 --retry-delay 6 --retry-all-errors "${{ needs.infra.outputs.apiUrl }}/health"
+
+  web:
+    name: Web app
+    needs: [infra, api]
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build
+        working-directory: web
+        env:
+          VITE_API_BASE_URL: ${{ needs.infra.outputs.apiUrl }}
+        run: |
+          npm ci
+          npm run build
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # Fetch the Static Web Apps deployment token at run time instead of storing it as a secret.
+      - name: Get the deployment token
+        id: token
+        run: |
+          token=$(az staticwebapp secrets list --resource-group "$RESOURCE_GROUP" \
+            --name "${{ needs.infra.outputs.webName }}" --query properties.apiKey --output tsv)
+          echo "::add-mask::$token"
+          echo "value=$token" >> "$GITHUB_OUTPUT"
+
+      - uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ steps.token.outputs.value }}
+          action: upload
+          app_location: web/dist
+          skip_app_build: true
+          skip_api_build: true
+
+      - name: Smoke test
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "${{ needs.infra.outputs.webUrl }}" \
+            | grep --quiet "<title>Family Tree - Andrew MacLeod</title>"
