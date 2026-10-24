@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import App from './App.tsx'
@@ -18,7 +18,7 @@ describe('App shell', () => {
 
     render(<App />)
 
-    expect(await screen.findByRole('status')).toHaveTextContent('API is healthy')
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('API is healthy'))
   })
 
   it('tells the user when the API is unavailable', async () => {
@@ -26,6 +26,6 @@ describe('App shell', () => {
 
     render(<App />)
 
-    expect(await screen.findByRole('status')).toHaveTextContent('API is unavailable')
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('API is unavailable'))
   })
 })
