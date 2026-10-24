@@ -56,6 +56,8 @@ az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
 
 A user-assigned managed identity with a federated credential. It trusts tokens from GitHub Actions only when they come from this repository's `production` environment.
 
+GitHub's token *subject* includes the numeric IDs of the owner and the repository, as well as their names: `repo:<owner>@<owner-id>/<repo>@<repo-id>:environment:production`. The IDs mean a deleted and re-created repository with the same name is not trusted. For this repository they are `82574641` (MacLeodDevelopment) and `1424382484` (andrewmacleod-family-tree); you can see them at `https://api.github.com/repos/MacLeodDevelopment/andrewmacleod-family-tree` (`owner.id` and `id`).
+
 ```sh
 az identity create --resource-group "$RESOURCE_GROUP" --name familytree-github-deploy
 CLIENT_ID=$(az identity show --resource-group "$RESOURCE_GROUP" --name familytree-github-deploy --query clientId -o tsv)
@@ -66,9 +68,11 @@ az identity federated-credential create \
   --identity-name familytree-github-deploy \
   --name github-production \
   --issuer https://token.actions.githubusercontent.com \
-  --subject "repo:$REPO:environment:production" \
+  --subject "repo:MacLeodDevelopment@82574641/andrewmacleod-family-tree@1424382484:environment:production" \
   --audiences api://AzureADTokenExchange
 ```
+
+If the deploy fails with `AADSTS700213: No matching federated identity record found`, compare the subject in the error with the one above. The credential's subject must match it exactly.
 
 ## 5. Give it permission to deploy
 

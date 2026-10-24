@@ -4,8 +4,11 @@
 @description('Location for most resources.')
 param location string = resourceGroup().location
 
-@description('Static Web Apps is only offered in some regions, so it has its own location.')
-param staticWebAppLocation string = 'westeurope'
+// Static Web Apps is only offered in a few regions (not UK South), and West Europe is not
+// accepting new customers. The location only holds the app's metadata: the site itself is
+// served from Azure's global edge, and it contains no family data.
+@description('Location for the Static Web App, which has its own short list of regions.')
+param staticWebAppLocation string = 'eastus2'
 
 @description('Prefix for resource names. Lowercase letters only.')
 param namePrefix string = 'familytree'
