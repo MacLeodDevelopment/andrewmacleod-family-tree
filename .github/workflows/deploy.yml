@@ -16,6 +16,7 @@ concurrency:
 env:
   RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
   API_NAME: familytree-api
+  API_ENVIRONMENT: familytree-env
   AZURE_EXTENSION_USE_DYNAMIC_INSTALL: yes_without_prompt
 
 jobs:
@@ -66,18 +67,51 @@ jobs:
             exit 1
           fi
 
+      # API_CUSTOM_DOMAIN is an optional environment variable (for example api.family.example.com).
+      # Its managed certificate can only be issued once the hostname is on the app, so the first
+      # deployment with a new domain needs a second pass to bind it. Look up whether it exists.
+      - name: Check for the API custom domain's certificate
+        id: certificate
+        env:
+          API_CUSTOM_DOMAIN: ${{ vars.API_CUSTOM_DOMAIN }}
+        run: |
+          exists=false
+          if [ -n "$API_CUSTOM_DOMAIN" ]; then
+            count=$(az containerapp env certificate list --resource-group "$RESOURCE_GROUP" --name "$API_ENVIRONMENT" \
+              --managed-certificates-only \
+              --query "length([?properties.subjectName=='$API_CUSTOM_DOMAIN' && properties.provisioningState=='Succeeded'])" \
+              --output tsv 2>/dev/null || echo 0)
+            if [ "${count:-0}" -gt 0 ]; then
+              exists=true
+            fi
+          fi
+          echo "Certificate for '${API_CUSTOM_DOMAIN}' exists: $exists"
+          echo "exists=$exists" >> "$GITHUB_OUTPUT"
+
       # WEB_CUSTOM_DOMAIN is an optional environment variable (for example family.example.com).
       # Set it only once the domain's DNS CNAME points at the Static Web App.
       - name: Deploy Bicep
         id: deploy
+        env:
+          API_CUSTOM_DOMAIN: ${{ vars.API_CUSTOM_DOMAIN }}
         run: |
-          outputs=$(az deployment group create \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "familytree-${{ github.run_number }}" \
-            --template-file infra/main.bicep \
-            --parameters apiImage="${{ steps.current.outputs.image }}" webCustomDomain="${{ vars.WEB_CUSTOM_DOMAIN }}" \
-              entraClientId="${{ vars.ENTRA_CLIENT_ID }}" \
-            --query properties.outputs --output json)
+          deploy() {
+            az deployment group create \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "$1" \
+              --template-file infra/main.bicep \
+              --parameters apiImage="${{ steps.current.outputs.image }}" webCustomDomain="${{ vars.WEB_CUSTOM_DOMAIN }}" \
+                entraClientId="${{ vars.ENTRA_CLIENT_ID }}" \
+                apiCustomDomain="$API_CUSTOM_DOMAIN" apiCustomDomainCertificateExists="$2" \
+              --query properties.outputs --output json
+          }
+
+          outputs=$(deploy "familytree-${{ github.run_number }}" "${{ steps.certificate.outputs.exists }}")
+          if [ -n "$API_CUSTOM_DOMAIN" ] && [ "${{ steps.certificate.outputs.exists }}" = "false" ]; then
+            echo "The API custom domain's certificate has just been issued: deploying again to bind it."
+            outputs=$(deploy "familytree-${{ github.run_number }}-bind" true)
+          fi
+
           for key in registryName registryLoginServer apiName apiUrl webName webUrl webCustomUrl; do
             echo "$key=$(jq -r ".$key.value" <<< "$outputs")" >> "$GITHUB_OUTPUT"
           done
