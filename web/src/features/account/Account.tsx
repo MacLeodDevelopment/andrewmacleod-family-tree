@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { ApiError, fetchMe, type Me } from '../../shared/api/me.ts'
 import type { SignedInUser } from '../../shared/auth/auth.ts'
 import { useAuth } from '../../shared/auth/authContext.ts'
@@ -8,8 +8,15 @@ const roleNames: Record<string, string> = {
   'Family.Viewer': 'Family viewer',
 }
 
-/** Sizes the role badge, so it's the same width whether loading or showing any role. */
-const widestRoleName = Object.values(roleNames).reduce((widest, name) => (name.length > widest.length ? name : widest))
+const problemLabels = {
+  noAccess: 'No access',
+  failed: 'Unavailable',
+}
+
+/** Sizes the role badge, so it's the same width whatever it's showing. */
+const widestBadgeLabel = [...Object.values(roleNames), ...Object.values(problemLabels)].reduce((widest, label) =>
+  label.length > widest.length ? label : widest,
+)
 
 type MeState =
   | { kind: 'loading' }
@@ -17,12 +24,16 @@ type MeState =
   | { kind: 'noAccess' }
   | { kind: 'failed' }
 
-/** Sign in and out, and who the API says you are once signed in. */
+/** Sign in and out; once signed in, who you are and your role (confirmed by the API). */
 export function Account() {
   const auth = useAuth()
 
   if (!auth.isConfigured) {
-    return <p className="account">Sign-in isn't set up in this copy of the app.</p>
+    return (
+      <div className="account">
+        <p className="account-message">Sign-in isn't set up in this copy of the app.</p>
+      </div>
+    )
   }
 
   if (!auth.user) {
@@ -70,10 +81,25 @@ function SignedIn({ user }: { user: SignedInUser }) {
     }
   }, [auth])
 
+  // Who's signed in comes from sign-in itself, so it's known from the first frame and
+  // never changes. The API only supplies the role (it enforces access on every request
+  // anyway), so its answer can't change or move anything else in the header.
+  const primary = user.name ?? user.username ?? 'Signed in'
+  const secondary = user.name && user.username ? user.username : null
+
   return (
     <div className="account">
-      <p role="status" aria-label="Account">
-        <AccountStatus state={state} user={user} checkingIsSlow={checkingIsSlow} />
+      <p role="status" aria-label="Account" className="account-card">
+        {(user.name || user.username) && <span className="sr-only">Signed in as </span>}
+        <strong className="account-name" title={primary}>
+          {primary}
+        </strong>{' '}
+        <span className="account-meta">
+          <span className="account-username" title={secondary ?? undefined}>
+            {secondary}
+          </span>{' '}
+          <RoleBadge state={state} checkingIsSlow={checkingIsSlow} user={user} />
+        </span>
       </p>
       <button type="button" onClick={auth.signOut}>
         Sign out
@@ -93,86 +119,43 @@ function useHasElapsed(ms: number): boolean {
 }
 
 /**
- * Who's signed in is known from sign-in itself, so it's shown straight away and stays
- * put. The role, confirmed by the API, goes in a badge that takes its final size from
- * the start, so nothing shifts when it arrives.
+ * The role, in a slot whose width comes from an invisible copy of the widest label it
+ * can show (a CSS pseudo-element, so it isn't part of the page's text). Loading, any
+ * role and the two problem states all occupy exactly the same space.
  */
-function AccountStatus({ state, user, checkingIsSlow }: { state: MeState; user: SignedInUser; checkingIsSlow: boolean }) {
+function RoleBadge({ state, checkingIsSlow, user }: { state: MeState; checkingIsSlow: boolean; user: SignedInUser }) {
   switch (state.kind) {
     case 'loading':
       return (
-        <>
-          <Identity name={user.name} username={user.username} />{' '}
-          <RoleBadge>
-            {checkingIsSlow && (
-              <span className="spinner">
-                <span className="sr-only">Checking your access…</span>
-              </span>
-            )}
-          </RoleBadge>
-        </>
-      )
-    case 'loaded': {
-      // The API's view of the user, which is what access is actually based on. It
-      // matches what's already shown, so in practice only the role appears.
-      const roles = state.me.roles.map((role) => roleNames[role] ?? role).join(', ')
-      return (
-        <>
-          <Identity name={state.me.name} username={state.me.username} />{' '}
-          <RoleBadge>
-            <span className="fade-in">{roles}</span>
-          </RoleBadge>
-        </>
-      )
-    }
-    case 'noAccess':
-      // Name the account, so the user can tell whether they signed in with the wrong one.
-      return (
-        <span className="fade-in">
-          You're signed in as {user.username ?? user.name ?? 'an account'}, but that account doesn't have access to the
-          family tree.
+        <span className="role-badge" data-widest={widestBadgeLabel}>
+          {checkingIsSlow && (
+            <span className="spinner">
+              <span className="sr-only">Checking your access…</span>
+            </span>
+          )}
         </span>
       )
-    case 'failed':
+    case 'loaded':
       return (
-        <>
-          <Identity name={user.name} username={user.username} />
-          <span className="fade-in">, but the family tree couldn't be reached. Please try again later.</span>
-        </>
+        <span className="role-badge" data-widest={widestBadgeLabel}>
+          <span className="fade-in">{state.me.roles.map((role) => roleNames[role] ?? role).join(', ')}</span>
+        </span>
       )
+    case 'noAccess':
+    case 'failed': {
+      // Name the account in the explanation, so the user can tell whether they signed in with the wrong one.
+      const explanation =
+        state.kind === 'noAccess'
+          ? `${user.username ?? user.name ?? 'This account'} doesn't have access to the family tree.`
+          : "The family tree couldn't be reached. Please try again later."
+      return (
+        <span className="role-badge role-badge--problem" data-widest={widestBadgeLabel} title={explanation}>
+          <span className="fade-in" aria-hidden="true">
+            {problemLabels[state.kind]}
+          </span>
+          <span className="sr-only">{explanation}</span>
+        </span>
+      )
+    }
   }
-}
-
-/**
- * A fixed-size slot for the role. Its width comes from an invisible copy of the
- * longest role name (a CSS pseudo-element, so it isn't part of the page's text),
- * and its content is drawn on top of that in the same grid cell.
- */
-function RoleBadge({ children }: { children: ReactNode }) {
-  return (
-    <span className="role-badge" data-widest={widestRoleName}>
-      {children}
-    </span>
-  )
-}
-
-/**
- * "Signed in as <name> · <username>". Profiles don't always have a display name, so
- * fall back to the username, and to plain "Signed in" if there's neither.
- */
-function Identity({ name, username }: { name: string | null; username: string | null }) {
-  if (!name && !username) {
-    return <>Signed in</>
-  }
-  return (
-    <>
-      Signed in as <strong>{name ?? username}</strong>
-      {name && username && (
-        <>
-          {' · '}
-          <span className="account-username">{username}</span>
-        </>
-      )}
-    </>
-  )
 }

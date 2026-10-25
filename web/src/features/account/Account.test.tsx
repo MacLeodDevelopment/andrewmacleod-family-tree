@@ -19,6 +19,11 @@ function meResponds(body: object, status = 200) {
   )
 }
 
+/** The API hasn't answered yet (and won't, during the test). */
+function meIsStillLoading() {
+  server.use(http.get('*/api/v1/me', () => new Promise<never>(() => {})))
+}
+
 const accountStatus = () => screen.getByRole('status', { name: 'Account' })
 
 describe('Account', () => {
@@ -38,35 +43,42 @@ describe('Account', () => {
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
   })
 
-  it('shows who is signed in, with which account and role, as confirmed by the API', async () => {
+  it('shows who is signed in, with which account, and their role once the API confirms it', async () => {
     meResponds({ name: 'Jean MacLeod', username: 'jean@example.test', roles: ['Family.Admin'] })
 
     renderApp(fakeAuth(signedIn))
 
-    await waitFor(() =>
-      expect(accountStatus()).toHaveTextContent('Signed in as Jean MacLeod · jean@example.test Family admin'),
-    )
+    await waitFor(() => expect(accountStatus()).toHaveTextContent('Signed in as Jean MacLeod jean@example.test Family admin'))
   })
 
-  it('shows who is signed in straight away, without a loading message, while access is checked', () => {
-    server.use(http.get('*/api/v1/me', () => new Promise<never>(() => {})))
+  it('keeps showing the signed-in account as it was, however the API describes it', async () => {
+    // A token without a name or username claim must not change what's already on screen.
+    meResponds({ name: null, username: null, roles: ['Family.Admin'] })
 
     renderApp(fakeAuth(signedIn))
 
-    expect(accountStatus()).toHaveTextContent(/^Signed in as Jean MacLeod · jean@example.test$/)
+    await waitFor(() => expect(accountStatus()).toHaveTextContent('Signed in as Jean MacLeod jean@example.test Family admin'))
+  })
+
+  it('shows who is signed in straight away, without a loading message, while access is checked', () => {
+    meIsStillLoading()
+
+    renderApp(fakeAuth(signedIn))
+
+    expect(accountStatus()).toHaveTextContent(/^Signed in as Jean MacLeod jean@example.test$/)
   })
 
   it('shows a checking indicator only when the check is taking a noticeable time', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {
-      server.use(http.get('*/api/v1/me', () => new Promise<never>(() => {})))
+      meIsStillLoading()
       renderApp(fakeAuth(signedIn))
 
       act(() => vi.advanceTimersByTime(checkingIndicatorDelayMs - 1))
       expect(accountStatus()).not.toHaveTextContent('Checking your access')
 
       act(() => vi.advanceTimersByTime(1))
-      expect(accountStatus()).toHaveTextContent('Signed in as Jean MacLeod · jean@example.test Checking your access…')
+      expect(accountStatus()).toHaveTextContent('Signed in as Jean MacLeod jean@example.test Checking your access…')
     } finally {
       vi.useRealTimers()
     }
@@ -77,10 +89,10 @@ describe('Account', () => {
 
     renderApp(fakeAuth({ user: { name: null, username: 'jean@example.test' } }))
 
-    await waitFor(() => expect(accountStatus()).toHaveTextContent('Signed in as jean@example.test Family viewer'))
+    await waitFor(() => expect(accountStatus()).toHaveTextContent(/^Signed in as jean@example.test Family viewer$/))
   })
 
-  it('still makes sense when the API knows neither a name nor a username', async () => {
+  it('still makes sense when neither a name nor a username is known', async () => {
     meResponds({ name: null, username: null, roles: ['Family.Viewer'] })
 
     renderApp(fakeAuth({ user: { name: null, username: null } }))
@@ -93,11 +105,8 @@ describe('Account', () => {
 
     renderApp(fakeAuth(signedIn))
 
-    await waitFor(() =>
-      expect(accountStatus()).toHaveTextContent(
-        "You're signed in as jean@example.test, but that account doesn't have access to the family tree.",
-      ),
-    )
+    await waitFor(() => expect(accountStatus()).toHaveTextContent('No access'))
+    expect(accountStatus()).toHaveTextContent("jean@example.test doesn't have access to the family tree.")
   })
 
   it('says when the family tree cannot be reached', async () => {
@@ -105,7 +114,8 @@ describe('Account', () => {
 
     renderApp(fakeAuth(signedIn))
 
-    await waitFor(() => expect(accountStatus()).toHaveTextContent("the family tree couldn't be reached"))
+    await waitFor(() => expect(accountStatus()).toHaveTextContent('Unavailable'))
+    expect(accountStatus()).toHaveTextContent("The family tree couldn't be reached. Please try again later.")
   })
 
   it('lets signed-in users sign out', () => {
