@@ -197,3 +197,61 @@ The order matters: Azure refuses the domain until the DNS record exists.
 Azure can take a while to issue the certificate after the domain is added (normally minutes, occasionally an hour or more). Until then, `https://family.andrewmacleod.com` may show a certificate warning. Its status is under **Static Web App → Custom domains** in the portal.
 
 To remove the domain, delete the `WEB_CUSTOM_DOMAIN` variable and redeploy, then delete the domain under **Custom domains** in the portal (the deployment only adds it), and finally remove the CNAME record.
+
+## 10. Custom domain for the API
+
+The API is served on `api.family.andrewmacleod.com` instead of its generated `*.azurecontainerapps.io` address. Container Apps issues and renews a free managed TLS certificate for it.
+
+This one needs **two** DNS records:
+
+- a **CNAME**, which points the name at the app
+- a **TXT** record, which proves to Azure that you control the domain
+
+Azure checks both before it accepts the domain.
+
+1. **Find the two values** (Git Bash, signed in to Azure):
+
+   ```sh
+   export MSYS_NO_PATHCONV=1
+   az containerapp show -g rg-familytree -n familytree-api --query properties.configuration.ingress.fqdn -o tsv
+   az containerapp env show -g rg-familytree -n familytree-env --query properties.customDomainConfiguration.customDomainVerificationId -o tsv
+   ```
+
+2. **Add the records in GoDaddy** (**My Products → Domains → andrewmacleod.com → DNS → Add New Record**). GoDaddy wants the *Name* without the `andrewmacleod.com` part.
+
+   | Type | Name | Value | TTL |
+   |---|---|---|---|
+   | CNAME | `api.family` | the app's hostname from step 1 (`familytree-api.….azurecontainerapps.io`) | 1 hour |
+   | TXT | `asuid.api.family` | the verification ID from step 1 | 1 hour |
+
+3. **Check both have propagated** (usually a few minutes):
+
+   ```sh
+   nslookup -type=CNAME api.family.andrewmacleod.com 8.8.8.8
+   nslookup -type=TXT asuid.api.family.andrewmacleod.com 8.8.8.8
+   ```
+
+4. **Tell the deployment about the domain.** In GitHub, add a variable to the `production` environment:
+
+   | Name | Value |
+   |---|---|
+   | `API_CUSTOM_DOMAIN` | `api.family.andrewmacleod.com` |
+
+5. **Deploy** by merging to `main` or running **Actions → Deploy → Run workflow**.
+
+### What the deploy does with it
+
+Azure only issues a managed certificate for a hostname that's already attached to the app. So on the first deploy after the variable is set, the Infrastructure job deploys **twice**:
+
+1. The first pass attaches the hostname without a certificate (binding *Disabled*) and asks Azure for the certificate. Bicep waits while Azure validates the domain and issues it, usually a few minutes.
+2. The second pass, named `familytree-<run number>-bind`, binds the new certificate to the hostname (binding *SniEnabled*, meaning TLS is served for that name).
+
+On later deploys, a step before Bicep sees that the certificate already exists, and a single pass keeps it bound. Routine deploys never unbind it.
+
+The web app is then built to call `https://api.family.andrewmacleod.com`, and the API smoke tests run against that address. Because they use HTTPS, they also prove the certificate works.
+
+### Removing it
+
+1. Delete the `API_CUSTOM_DOMAIN` variable and redeploy. The hostname is removed from the app and the web app goes back to the generated address.
+2. Delete the certificate in the portal under **Container Apps Environment → Certificates → Managed certificate**. Bicep doesn't delete it.
+3. Remove both DNS records.

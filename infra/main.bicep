@@ -22,6 +22,12 @@ param webCustomDomain string = ''
 @description('Client (application) ID of the "Family Tree" Entra app registration, from deploying infra/entra.bicep. The API validates sign-in tokens issued for it, and refuses to start without it.')
 param entraClientId string
 
+@description('Custom domain for the API, such as api.family.example.com. Leave empty until its DNS records exist: a CNAME to the Container App\'s default hostname, and a TXT record asuid.<domain> holding the environment\'s domain verification ID.')
+param apiCustomDomain string = ''
+
+@description('Whether the API custom domain\'s managed certificate has already been issued. The deploy workflow looks this up. Azure only issues a certificate for a hostname that is already on the app, so the first deployment adds the hostname unbound and requests the certificate; a second deployment, with this set to true, binds it.')
+param apiCustomDomainCertificateExists bool = false
+
 // Built-in role: AcrPull.
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 
@@ -109,6 +115,26 @@ var customDomainOriginSettings = empty(webCustomDomain)
       }
     ]
 
+// The API's custom domain and its free managed certificate. The certificate's ID is built
+// as a string rather than referenced, because the certificate can only be created after
+// the hostname is on the app: the app must not depend on it.
+var apiCertificateName = '${namePrefix}-api-${replace(apiCustomDomain, '.', '-')}'
+var apiCertificateId = '${containerAppsEnvironment.id}/managedCertificates/${apiCertificateName}'
+var apiCustomDomains = empty(apiCustomDomain)
+  ? []
+  : [
+      apiCustomDomainCertificateExists
+        ? {
+            name: apiCustomDomain
+            bindingType: 'SniEnabled'
+            certificateId: apiCertificateId
+          }
+        : {
+            name: apiCustomDomain
+            bindingType: 'Disabled'
+          }
+    ]
+
 resource api 'Microsoft.App/containerApps@2025-01-01' = {
   name: '${namePrefix}-api'
   location: location
@@ -127,6 +153,7 @@ resource api 'Microsoft.App/containerApps@2025-01-01' = {
         targetPort: 8080
         transport: 'auto'
         allowInsecure: false
+        customDomains: apiCustomDomains
       }
       registries: [
         {
@@ -177,10 +204,27 @@ resource api 'Microsoft.App/containerApps@2025-01-01' = {
   ]
 }
 
+// Azure validates the domain through its CNAME record, then issues and renews the certificate.
+resource apiCertificate 'Microsoft.App/managedEnvironments/managedCertificates@2025-01-01' = if (!empty(apiCustomDomain)) {
+  parent: containerAppsEnvironment
+  name: apiCertificateName
+  location: location
+  properties: {
+    subjectName: apiCustomDomain
+    domainControlValidation: 'CNAME'
+  }
+  dependsOn: [
+    api
+  ]
+}
+
 output registryName string = registry.name
 output registryLoginServer string = registry.properties.loginServer
 output apiName string = api.name
-output apiUrl string = 'https://${api.properties.configuration.ingress.fqdn}'
+// The address the web app and smoke tests use: the custom domain once its certificate is bound.
+output apiUrl string = !empty(apiCustomDomain) && apiCustomDomainCertificateExists
+  ? 'https://${apiCustomDomain}'
+  : 'https://${api.properties.configuration.ingress.fqdn}'
 output webName string = web.name
 output webUrl string = 'https://${web.properties.defaultHostname}'
 output webCustomUrl string = empty(webCustomDomain) ? '' : 'https://${webCustomDomain}'

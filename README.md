@@ -72,7 +72,8 @@ The app has two halves that are built, hosted and deployed separately: a static 
  Azure Static Web App  (familytree-web, Free tier, East US 2)
    Serves the built React app: HTML, JavaScript and CSS only. No family data.
    │
-   │ 2. The app's JavaScript calls the API from the browser (CORS allows this origin)
+   │ 2. The app's JavaScript calls https://api.family.andrewmacleod.com
+   │    from the browser (CORS allows the web app's origin)
    ▼
  Azure Container App  (familytree-api, UK South, scales to zero)
    Runs the .NET API as a container image.
@@ -95,7 +96,14 @@ Everything lives in one Azure **resource group**, `rg-familytree` (UK South). A 
 
 **Bicep** ([`infra/main.bicep`](infra/main.bicep)) is Azure's infrastructure-as-code language, a friendlier syntax that compiles to ARM templates. It's *declarative*: it describes the resources that should exist, and Azure works out what to create or change. Deploying the same file twice is safe; the second run changes nothing. Bicep deployments only add or update resources, never delete them, so removing something from the file doesn't remove it from Azure.
 
-**DNS and the custom domain.** `family.andrewmacleod.com` is a CNAME record at GoDaddy, which hosts DNS for andrewmacleod.com. It points to the Static Web App's generated `*.azurestaticapps.net` hostname. Static Web Apps checks that the CNAME exists, then issues and renews a free HTTPS certificate for the domain. The API keeps its generated `*.azurecontainerapps.io` address, because visitors never see it.
+**DNS and the custom domains.** GoDaddy hosts DNS for andrewmacleod.com, and both halves have their own name there. Each points at the hostname Azure generated, and Azure issues and renews a free HTTPS certificate for each.
+
+- **`family.andrewmacleod.com`** (the web app) is a CNAME to the Static Web App's `*.azurestaticapps.net` hostname. Static Web Apps checks the CNAME exists before accepting the domain.
+- **`api.family.andrewmacleod.com`** (the API) is a CNAME to the Container App's `*.azurecontainerapps.io` hostname.
+  - It also needs a TXT record, `asuid.api.family`, holding a verification ID for the Container Apps environment. That proves to Azure you control the domain.
+  - Azure only issues the certificate once the hostname is attached to the app, so the first deploy after adding the domain runs Bicep twice: once to attach the hostname and get the certificate, then again to bind it (see [setup guide section 10](docs/setup-azure.md#10-custom-domain-for-the-api)).
+
+The generated addresses still work, but nothing uses them. Your own names stay the same even if the Azure resources are ever recreated.
 
 ### How the browser is allowed to call the API (CORS)
 
@@ -153,7 +161,7 @@ Only invited family members can use the app. Sign-in is handled by **Microsoft E
 Pull requests run [`ci.yml`](.github/workflows/ci.yml): it builds, lints and tests the API and the front end, and deploys nothing. Merging to `main` runs [`deploy.yml`](.github/workflows/deploy.yml). It reuses `ci.yml` as its first job and runs these jobs in order, stopping at the first failure:
 
 1. **Test**: the same checks as a pull request, so nothing untested reaches Azure.
-2. **Infrastructure**: deploys `infra/main.bicep`. Before that, it looks up which API image is *currently running* and passes it in. Otherwise the template's placeholder image would replace the real API on every deploy. This job also collects Bicep's outputs (registry name, API and web addresses) for the later jobs.
+2. **Infrastructure**: deploys `infra/main.bicep`. Before that, it looks up which API image is *currently running* and passes it in. Otherwise the template's placeholder image would replace the real API on every deploy. It also checks whether the API custom domain's certificate exists yet; if not, it runs Bicep a second time to bind the new certificate. This job collects Bicep's outputs (registry name, API and web addresses) for the later jobs.
 3. **API**: builds the image, pushes it to the registry tagged with the commit SHA, and points the Container App at it. Container Apps then starts a new *revision* (an immutable snapshot of the app's configuration and image). Once that revision is up, Container Apps moves the traffic to it.
    - The job waits until the new revision is healthy and taking 100% of the traffic, polling for up to 5 minutes.
    - It fails if the revision doesn't get there. Otherwise a revision that fails to start would leave the *old* one quietly serving, and the smoke tests would pass against the wrong version.
@@ -192,7 +200,7 @@ The third is at subscription scope, because that's where Azure puts the thing it
 
 **The Static Web App's upload token** is a secret the upload action requires. The workflow fetches it from Azure during each run (using the OIDC sign-in) and masks it in the logs, rather than storing it in GitHub.
 
-The non-secret identifiers the workflow needs live as **variables on the `production` environment** in GitHub (Settings → Environments → production): `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `ENTRA_CLIENT_ID`, and optionally `WEB_CUSTOM_DOMAIN`. Don't confuse the two client IDs:
+The non-secret identifiers the workflow needs live as **variables on the `production` environment** in GitHub (Settings → Environments → production): `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `ENTRA_CLIENT_ID`, and optionally `WEB_CUSTOM_DOMAIN` and `API_CUSTOM_DOMAIN`. Don't confuse the two client IDs:
 - `AZURE_CLIENT_ID` is the *deploy identity* that GitHub signs in to Azure as.
 - `ENTRA_CLIENT_ID` is the *Family Tree app registration* that family members sign in to.
 
@@ -204,7 +212,8 @@ The one-off setup for all of this is in [docs/setup-azure.md](docs/setup-azure.m
 |---|---|---|
 | Resource names, regions, sizes | [`infra/main.bicep`](infra/main.bicep) | Defaults are in the file. Nothing secret. |
 | Which Azure account to deploy to | GitHub `production` environment variables (see above) | Identifiers, not credentials, but kept out of this public repo. |
-| Custom domain | GitHub `production` variable `WEB_CUSTOM_DOMAIN` | Empty or missing means no custom domain. Set it only once the DNS CNAME exists, because Azure validates the domain during the deploy. |
+| Custom domain for the web app | GitHub `production` variable `WEB_CUSTOM_DOMAIN` | Empty or missing means no custom domain. Set it only once the DNS CNAME exists, because Azure validates the domain during the deploy. |
+| Custom domain for the API | GitHub `production` variable `API_CUSTOM_DOMAIN` | Same rules, but it needs both the CNAME and the `asuid` TXT record first. When set, the web app is built to call it. |
 | API's allowed browser origins | Container App environment variables, set by Bicep | Derived from the Static Web App's address and the custom domain. Don't edit them in the portal: the next deploy overwrites them. |
 | API address used by the front end | Baked into the front-end build | From Bicep's outputs during the deploy; unset locally. |
 | Sign-in app registration, roles, redirect URIs | [`infra/entra.bicep`](infra/entra.bicep), deployed by hand | Redeploy when the web app's addresses change. See [docs/setup-entra.md](docs/setup-entra.md). |
@@ -283,7 +292,7 @@ az containerapp show -g rg-familytree -n familytree-api --query "properties.temp
 - **Roll back:**
   - The clean way: revert the commit on `main`. The Deploy run that follows rebuilds and deploys the previous code.
   - In an emergency: point the API at an older image directly, `az containerapp update -g rg-familytree -n familytree-api --image <registry>.azurecr.io/familytree-api:<older commit SHA>`. The next normal deploy carries on from there.
-- **Add or change the custom domain:** see [setup guide section 9](docs/setup-azure.md#9-custom-domain).
+- **Add or change a custom domain:** see setup guide sections [9 (web app)](docs/setup-azure.md#9-custom-domain) and [10 (API)](docs/setup-azure.md#10-custom-domain-for-the-api).
 
 ### Where it's heading
 
