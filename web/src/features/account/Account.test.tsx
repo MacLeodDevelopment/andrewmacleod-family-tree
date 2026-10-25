@@ -2,7 +2,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
 import { notConfiguredAuth } from '../../shared/auth/auth.ts'
-import { checkingNoticeDelayMs } from './Account.tsx'
+import { checkingIndicatorDelayMs } from './Account.tsx'
 import { fakeAuth, renderApp, testAccessToken } from '../../test/renderApp.tsx'
 import { server } from '../../test/server.ts'
 
@@ -44,7 +44,7 @@ describe('Account', () => {
     renderApp(fakeAuth(signedIn))
 
     await waitFor(() =>
-      expect(accountStatus()).toHaveTextContent('Signed in as Jean MacLeod · jean@example.test · Family admin'),
+      expect(accountStatus()).toHaveTextContent('Signed in as Jean MacLeod · jean@example.test Family admin'),
     )
   })
 
@@ -56,17 +56,17 @@ describe('Account', () => {
     expect(accountStatus()).toHaveTextContent(/^Signed in as Jean MacLeod · jean@example.test$/)
   })
 
-  it('says access is being checked only when the check is taking a noticeable time', () => {
+  it('shows a checking indicator only when the check is taking a noticeable time', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {
       server.use(http.get('*/api/v1/me', () => new Promise<never>(() => {})))
       renderApp(fakeAuth(signedIn))
 
-      act(() => vi.advanceTimersByTime(checkingNoticeDelayMs - 1))
+      act(() => vi.advanceTimersByTime(checkingIndicatorDelayMs - 1))
       expect(accountStatus()).not.toHaveTextContent('Checking your access')
 
       act(() => vi.advanceTimersByTime(1))
-      expect(accountStatus()).toHaveTextContent('Signed in as Jean MacLeod · jean@example.test · Checking your access…')
+      expect(accountStatus()).toHaveTextContent('Signed in as Jean MacLeod · jean@example.test Checking your access…')
     } finally {
       vi.useRealTimers()
     }
@@ -77,7 +77,7 @@ describe('Account', () => {
 
     renderApp(fakeAuth({ user: { name: null, username: 'jean@example.test' } }))
 
-    await waitFor(() => expect(accountStatus()).toHaveTextContent('Signed in as jean@example.test · Family viewer'))
+    await waitFor(() => expect(accountStatus()).toHaveTextContent('Signed in as jean@example.test Family viewer'))
   })
 
   it('still makes sense when the API knows neither a name nor a username', async () => {
@@ -85,7 +85,7 @@ describe('Account', () => {
 
     renderApp(fakeAuth({ user: { name: null, username: null } }))
 
-    await waitFor(() => expect(accountStatus()).toHaveTextContent(/^Signed in · Family viewer$/))
+    await waitFor(() => expect(accountStatus()).toHaveTextContent(/^Signed in Family viewer$/))
   })
 
   it('tells signed-in users without a family role which account has no access', async () => {
