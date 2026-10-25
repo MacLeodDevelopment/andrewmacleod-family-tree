@@ -40,9 +40,17 @@ export function Account() {
   return <SignedIn user={auth.user} />
 }
 
+/**
+ * How long to wait before saying access is being checked. Most checks finish well
+ * within this, and a message that flashes up and vanishes is more jarring than a
+ * short pause, so on a fast connection it never appears.
+ */
+export const checkingNoticeDelayMs = 1000
+
 function SignedIn({ user }: { user: SignedInUser }) {
   const auth = useAuth()
   const [state, setState] = useState<MeState>({ kind: 'loading' })
+  const checkingIsSlow = useHasElapsed(checkingNoticeDelayMs)
 
   useEffect(() => {
     let active = true
@@ -62,7 +70,7 @@ function SignedIn({ user }: { user: SignedInUser }) {
   return (
     <div className="account">
       <p role="status" aria-label="Account">
-        <AccountStatus state={state} user={user} />
+        <AccountStatus state={state} user={user} checkingIsSlow={checkingIsSlow} />
       </p>
       <button type="button" onClick={auth.signOut}>
         Sign out
@@ -71,38 +79,53 @@ function SignedIn({ user }: { user: SignedInUser }) {
   )
 }
 
-function AccountStatus({ state, user }: { state: MeState; user: SignedInUser }) {
+/** True once `ms` milliseconds have passed since the component appeared. */
+function useHasElapsed(ms: number): boolean {
+  const [elapsed, setElapsed] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => setElapsed(true), ms)
+    return () => clearTimeout(timer)
+  }, [ms])
+  return elapsed
+}
+
+/**
+ * Who's signed in is known from sign-in itself, so it's shown straight away and stays
+ * put; only the role, confirmed by the API, is added (fading in) when it arrives.
+ */
+function AccountStatus({ state, user, checkingIsSlow }: { state: MeState; user: SignedInUser; checkingIsSlow: boolean }) {
   switch (state.kind) {
     case 'loading':
       return (
         <>
-          <Identity name={user.name} username={user.username} />. Checking your access…
+          <Identity name={user.name} username={user.username} />
+          {checkingIsSlow && <span className="account-detail fade-in"> · Checking your access…</span>}
         </>
       )
     case 'loaded': {
-      // The API's view of the user, which is what access is actually based on.
+      // The API's view of the user, which is what access is actually based on. It
+      // matches what's already shown, so in practice only the role appears.
       const roles = state.me.roles.map((role) => roleNames[role] ?? role).join(', ')
       return (
         <>
           <Identity name={state.me.name} username={state.me.username} />
-          {' · '}
-          {roles}
+          <span className="fade-in"> · {roles}</span>
         </>
       )
     }
     case 'noAccess':
       // Name the account, so the user can tell whether they signed in with the wrong one.
       return (
-        <>
+        <span className="fade-in">
           You're signed in as {user.username ?? user.name ?? 'an account'}, but that account doesn't have access to the
           family tree.
-        </>
+        </span>
       )
     case 'failed':
       return (
         <>
-          <Identity name={user.name} username={user.username} />, but the family tree couldn't be reached. Please try
-          again later.
+          <Identity name={user.name} username={user.username} />
+          <span className="fade-in">, but the family tree couldn't be reached. Please try again later.</span>
         </>
       )
   }

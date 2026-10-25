@@ -1,7 +1,8 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { notConfiguredAuth } from '../../shared/auth/auth.ts'
+import { checkingNoticeDelayMs } from './Account.tsx'
 import { fakeAuth, renderApp, testAccessToken } from '../../test/renderApp.tsx'
 import { server } from '../../test/server.ts'
 
@@ -45,6 +46,30 @@ describe('Account', () => {
     await waitFor(() =>
       expect(accountStatus()).toHaveTextContent('Signed in as Jean MacLeod · jean@example.test · Family admin'),
     )
+  })
+
+  it('shows who is signed in straight away, without a loading message, while access is checked', () => {
+    server.use(http.get('*/api/v1/me', () => new Promise<never>(() => {})))
+
+    renderApp(fakeAuth(signedIn))
+
+    expect(accountStatus()).toHaveTextContent(/^Signed in as Jean MacLeod · jean@example.test$/)
+  })
+
+  it('says access is being checked only when the check is taking a noticeable time', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      server.use(http.get('*/api/v1/me', () => new Promise<never>(() => {})))
+      renderApp(fakeAuth(signedIn))
+
+      act(() => vi.advanceTimersByTime(checkingNoticeDelayMs - 1))
+      expect(accountStatus()).not.toHaveTextContent('Checking your access')
+
+      act(() => vi.advanceTimersByTime(1))
+      expect(accountStatus()).toHaveTextContent('Signed in as Jean MacLeod · jean@example.test · Checking your access…')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('identifies users by their account when their profile has no display name', async () => {
