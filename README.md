@@ -231,7 +231,7 @@ The one-off setup for all of this is in [docs/setup-azure.md](docs/setup-azure.m
 | API's sign-in settings locally | .NET user secrets (`dotnet user-secrets list --project src/FamilyTree.Api`) | Stored in your Windows profile, never in the repo. |
 | Web app's sign-in settings | Build-time `VITE_ENTRA_CLIENT_ID` and `VITE_ENTRA_TENANT_ID`. In Azure they come from the GitHub variables `ENTRA_CLIENT_ID` and `AZURE_TENANT_ID`; locally, from `web/.env.local` (git-ignored; template in `web/.env.example`). | Baked into the published JavaScript, which is fine: neither is a secret. |
 | Who can sign in, and with which role | Azure portal → Entra ID → Enterprise applications → Family Tree → Users and groups | Not in code: these are people. |
-| .NET SDK version and test runner | [`global.json`](global.json) | Pins .NET 10 and opts in to Microsoft.Testing.Platform (see gotchas). |
+| .NET SDK version and test runner | [`global.json`](global.json) | Pins the exact SDK (10.0.402) that CI installs, and opts in to Microsoft.Testing.Platform (see gotchas). Bump the version by hand when you update the SDK locally. |
 | npm package versions | `web/package.json` (exact versions) and `web/package-lock.json` | `web/.npmrc` has `save-exact=true`, so new packages are pinned too. |
 
 ### Costs
@@ -271,6 +271,11 @@ These are mostly lessons learned the hard way.
   - It rewrites arguments that look like paths. Azure resource IDs start with `/`, so they're mangled and you get `MissingSubscription`. Fix: `export MSYS_NO_PATHCONV=1`.
   - It treats `!` as history expansion, giving `event not found`. Fix: `set +H`.
   - Arguments full of brackets and quotes get mangled. Put the value in a file and pass `@filename`, which `az` reads directly.
+- **CI fails at "Setup .NET" with HTTP 409 downloading the SDK.** The SDK version in [`global.json`](global.json) is pinned exactly, with `"rollForward": "patch"`, rather than "latest 10.0".
+  - In October 2026, `actions/setup-dotnet` was turning `"rollForward": "latestFeature"` into "install the latest 10.0". That goes through an aka.ms redirect, which pointed at a Microsoft storage account refusing public downloads (`PublicAccessNotPermitted`) while a new release was being published. CI broke without any change on our side.
+  - An exact version is downloaded straight from `builds.dotnet.microsoft.com`, so it isn't affected. Avoid `latestFeature`, `latestPatch`, `latestMinor` and `latestMajor`: `setup-dotnet` turns all of those into "latest" lookups.
+  - Locally, `patch` uses 10.0.402 if it's installed, otherwise the newest 10.0.4xx patch.
+  - To move to a newer SDK, install it, set `version` to it, and check CI is green.
 - **`dotnet test` on .NET 10 needs Microsoft.Testing.Platform.** .NET 10's `dotnet test` dropped the old VSTest mode for test frameworks like xUnit v3. [`global.json`](global.json) opts in to the new runner. The test project must also be an executable (`<OutputType>Exe</OutputType>`), which xUnit v3 requires.
 - **Front-end tests that wait for async UI should use `waitFor`, not `findBy…` followed by a text assertion.** The status element exists immediately ("Checking the API…"), so `findByRole('status')` returns before the fetch completes. One test passed locally and failed on CI's slower runners until it was fixed.
 - **A workflow step fails with only "exit code 1" and no message of its own.** GitHub runs `run:` steps with `bash -e`, which ends the script at the first command that returns non-zero, even one whose failure looks harmless.
