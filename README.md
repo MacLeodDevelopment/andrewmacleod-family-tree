@@ -146,7 +146,10 @@ Only invited family members can use the app. Sign-in is handled by **Microsoft E
   - The username matters because many people have several Microsoft accounts (work, personal, an old Hotmail). "Which account am I signed in with?" is the first question when someone can't get in, and the username is what you look up in Entra.
   - Profiles don't always have a display name. The header then shows just the username, and plain "Signed in" if there's neither.
   - If a signed-in account has no family role, the message names that account.
-  - The name and username come from sign-in itself, so they're shown immediately and never change; only the role, from the API, fades in. "Checking your access…" appears only if the API takes over a second (for example, a cold start). On a fast connection it would just flash up and vanish, which looks like a glitch.
+  - **Nothing in the header moves while it loads.** The name and username come from sign-in itself, so they're shown immediately and never change.
+    - The role, from the API, goes in a badge that has its final size from the first frame. CSS sizes it from an invisible copy of the longest role name, a `::before` pseudo-element, so it isn't part of the page's text.
+    - While loading, the badge is empty. If the API takes more than half a second (for example, a cold start), a small spinner appears in it, with "Checking your access…" for screen readers. When the role arrives, it fades in, in the same box.
+    - Reserving the space matters more than the spinner. When the role used to be appended as text, the line grew and everything before it slid left. A spinner that flashes up and vanishes also looks like a glitch, hence the delay.
 
 **The Entra setup** is defined in [`infra/entra.bicep`](infra/entra.bicep): one app registration, "Family Tree", with a `Family.Read` scope and two app roles, `Family.Viewer` and `Family.Admin`. You deploy it by hand rather than through the pipeline, so the GitHub deploy identity never needs permission to change the directory. [docs/setup-entra.md](docs/setup-entra.md) explains each part and covers deploying it, configuring local development, and giving someone access.
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ApiError, fetchMe, type Me } from '../../shared/api/me.ts'
 import type { SignedInUser } from '../../shared/auth/auth.ts'
 import { useAuth } from '../../shared/auth/authContext.ts'
@@ -7,6 +7,9 @@ const roleNames: Record<string, string> = {
   'Family.Admin': 'Family admin',
   'Family.Viewer': 'Family viewer',
 }
+
+/** Sizes the role badge, so it's the same width whether loading or showing any role. */
+const widestRoleName = Object.values(roleNames).reduce((widest, name) => (name.length > widest.length ? name : widest))
 
 type MeState =
   | { kind: 'loading' }
@@ -41,16 +44,16 @@ export function Account() {
 }
 
 /**
- * How long to wait before saying access is being checked. Most checks finish well
- * within this, and a message that flashes up and vanishes is more jarring than a
- * short pause, so on a fast connection it never appears.
+ * How long to wait before showing the spinner in the role badge. Most checks finish
+ * within this, and a spinner that flashes up and vanishes looks like a glitch, so on
+ * a fast connection the empty badge is simply filled in.
  */
-export const checkingNoticeDelayMs = 1000
+export const checkingIndicatorDelayMs = 500
 
 function SignedIn({ user }: { user: SignedInUser }) {
   const auth = useAuth()
   const [state, setState] = useState<MeState>({ kind: 'loading' })
-  const checkingIsSlow = useHasElapsed(checkingNoticeDelayMs)
+  const checkingIsSlow = useHasElapsed(checkingIndicatorDelayMs)
 
   useEffect(() => {
     let active = true
@@ -91,15 +94,22 @@ function useHasElapsed(ms: number): boolean {
 
 /**
  * Who's signed in is known from sign-in itself, so it's shown straight away and stays
- * put; only the role, confirmed by the API, is added (fading in) when it arrives.
+ * put. The role, confirmed by the API, goes in a badge that takes its final size from
+ * the start, so nothing shifts when it arrives.
  */
 function AccountStatus({ state, user, checkingIsSlow }: { state: MeState; user: SignedInUser; checkingIsSlow: boolean }) {
   switch (state.kind) {
     case 'loading':
       return (
         <>
-          <Identity name={user.name} username={user.username} />
-          {checkingIsSlow && <span className="account-detail fade-in"> · Checking your access…</span>}
+          <Identity name={user.name} username={user.username} />{' '}
+          <RoleBadge>
+            {checkingIsSlow && (
+              <span className="spinner">
+                <span className="sr-only">Checking your access…</span>
+              </span>
+            )}
+          </RoleBadge>
         </>
       )
     case 'loaded': {
@@ -108,8 +118,10 @@ function AccountStatus({ state, user, checkingIsSlow }: { state: MeState; user: 
       const roles = state.me.roles.map((role) => roleNames[role] ?? role).join(', ')
       return (
         <>
-          <Identity name={state.me.name} username={state.me.username} />
-          <span className="fade-in"> · {roles}</span>
+          <Identity name={state.me.name} username={state.me.username} />{' '}
+          <RoleBadge>
+            <span className="fade-in">{roles}</span>
+          </RoleBadge>
         </>
       )
     }
@@ -129,6 +141,19 @@ function AccountStatus({ state, user, checkingIsSlow }: { state: MeState; user: 
         </>
       )
   }
+}
+
+/**
+ * A fixed-size slot for the role. Its width comes from an invisible copy of the
+ * longest role name (a CSS pseudo-element, so it isn't part of the page's text),
+ * and its content is drawn on top of that in the same grid cell.
+ */
+function RoleBadge({ children }: { children: ReactNode }) {
+  return (
+    <span className="role-badge" data-widest={widestRoleName}>
+      {children}
+    </span>
+  )
 }
 
 /**
