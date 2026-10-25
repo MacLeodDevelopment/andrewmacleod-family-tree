@@ -23,7 +23,7 @@ export function ApiStatus() {
   }, [])
 
   return (
-    <p role="status" className={`api-status api-status--${status}`}>
+    <p role="status" aria-label="API status" className={`api-status api-status--${status}`}>
       {messages[status]}
     </p>
   )
