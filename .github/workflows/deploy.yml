@@ -119,9 +119,37 @@ jobs:
             -p:ContainerImageTag="${{ github.sha }}"
 
       - name: Deploy the new image
+        id: update
         run: |
-          az containerapp update --resource-group "$RESOURCE_GROUP" --name "${{ needs.infra.outputs.apiName }}" \
-            --image "${{ needs.infra.outputs.registryLoginServer }}/familytree-api:${{ github.sha }}"
+          revision=$(az containerapp update --resource-group "$RESOURCE_GROUP" --name "${{ needs.infra.outputs.apiName }}" \
+            --image "${{ needs.infra.outputs.registryLoginServer }}/familytree-api:${{ github.sha }}" \
+            --query properties.latestRevisionName --output tsv)
+          echo "Created revision $revision"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+      # `az containerapp update` returns once the new revision exists, but traffic only moves
+      # to it once it has started. Until then the old revision keeps answering, and if the new
+      # one never starts, the old one would quietly keep serving. So wait for the new revision
+      # to be healthy and taking all the traffic, and fail if it doesn't get there.
+      - name: Wait for the new revision to take over
+        run: |
+          revision="${{ steps.update.outputs.revision }}"
+          for attempt in $(seq 1 30); do
+            read -r health running traffic < <(az containerapp revision show \
+              --resource-group "$RESOURCE_GROUP" --name "${{ needs.infra.outputs.apiName }}" --revision "$revision" \
+              --query "[properties.healthState, properties.runningState, properties.trafficWeight]" --output tsv | tr '\n' ' ')
+            echo "Attempt $attempt: health=$health running=$running traffic=$traffic"
+            if [ "$health" = "Healthy" ] && [ "$traffic" = "100" ]; then
+              exit 0
+            fi
+            if [ "$running" = "Failed" ] || [ "$running" = "Degraded" ]; then
+              echo "::error::Revision $revision failed to start. Check its logs: az containerapp logs show -g $RESOURCE_GROUP -n ${{ needs.infra.outputs.apiName }} --revision $revision --type console"
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "::error::Revision $revision was not healthy and serving all traffic after 5 minutes."
+          exit 1
 
       # The API scales to zero, so allow time for a cold start.
       - name: Smoke test

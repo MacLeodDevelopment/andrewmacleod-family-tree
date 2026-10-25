@@ -141,10 +141,13 @@ Pull requests run [`ci.yml`](.github/workflows/ci.yml): it builds, lints and tes
 
 1. **Test**: the same checks as a pull request, so nothing untested reaches Azure.
 2. **Infrastructure**: deploys `infra/main.bicep`. Before that, it looks up which API image is *currently running* and passes it in. Otherwise the template's placeholder image would replace the real API on every deploy. This job also collects Bicep's outputs (registry name, API and web addresses) for the later jobs.
-3. **API**: builds the image, pushes it to the registry tagged with the commit SHA, and points the Container App at it. Container Apps then starts a new *revision* (an immutable snapshot of the app's configuration and image) and moves traffic to it. Smoke tests then check:
-   - `/health` responds, retrying to allow for a cold start.
-   - `/api/v1/me` refuses an anonymous request with 401, which proves sign-in is enforced.
-   - If a custom domain is set, the API returns the right CORS header for it.
+3. **API**: builds the image, pushes it to the registry tagged with the commit SHA, and points the Container App at it. Container Apps then starts a new *revision* (an immutable snapshot of the app's configuration and image). Once that revision is up, Container Apps moves the traffic to it.
+   - The job waits until the new revision is healthy and taking 100% of the traffic, polling for up to 5 minutes.
+   - It fails if the revision doesn't get there. Otherwise a revision that fails to start would leave the *old* one quietly serving, and the smoke tests would pass against the wrong version.
+   - Smoke tests then check:
+     - `/health` responds, retrying to allow for a cold start.
+     - `/api/v1/me` refuses an anonymous request with 401, which proves sign-in is enforced.
+     - If a custom domain is set, the API returns the right CORS header for it.
 4. **Web app**: builds the front end with the API's address baked in, uploads `web/dist` to the Static Web App, then checks the page loads and has the expected title.
 
 The run's summary page lists the addresses it deployed to. Deploys are queued rather than run in parallel (`concurrency: deploy-production`), so two quick merges can't overlap.
