@@ -65,6 +65,17 @@ dotnet user-secrets set "AzureAd:TenantId" "d7ca0a01-3090-41f1-bb26-431ec7b60471
 dotnet user-secrets set "AzureAd:ClientId" "<clientId from step 1>" --project src/FamilyTree.Api
 ```
 
+The web app reads its sign-in settings at build time from `VITE_*` environment variables. Locally, Vite loads them from `web/.env.local`, which git ignores. Copy [`web/.env.example`](../web/.env.example) to `web/.env.local` and fill in:
+
+```sh
+VITE_ENTRA_CLIENT_ID=<clientId from step 1>
+VITE_ENTRA_TENANT_ID=d7ca0a01-3090-41f1-bb26-431ec7b60471
+```
+
+Restart `npm run dev` after changing it. Without the file, the app still runs, but shows "Sign-in isn't set up in this copy of the app" instead of a **Sign in** button.
+
+Local sign-in works because `http://localhost:5173` is one of the `webOrigins` in step 1. Run the dev server on that port.
+
 ## 4. Check it
 
 In the Azure portal, go to **Microsoft Entra ID → Enterprise applications → Family Tree**:

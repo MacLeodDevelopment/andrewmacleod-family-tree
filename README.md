@@ -18,7 +18,10 @@ A private, invite-only family tree for the MacLeod family, served at `family.and
 
 ## Run locally
 
-The API needs its sign-in settings (the Entra tenant ID and the app's client ID) and won't start without them. Set them once as .NET user secrets: see [setup-entra.md, step 3](docs/setup-entra.md#3-configure-local-development).
+Both halves need the sign-in settings (the Entra tenant ID and the app's client ID). Set them once; see [setup-entra.md, step 3](docs/setup-entra.md#3-configure-local-development):
+
+- **API:** .NET user secrets. The API won't start without them.
+- **Web app:** `web/.env.local`. Without it, the page runs but sign-in is turned off.
 
 Start the API (http://localhost:5080):
 
@@ -115,13 +118,23 @@ Vite replaces `import.meta.env.VITE_*` references with literal values **at build
 
 Only invited family members can use the app. Sign-in is handled by **Microsoft Entra ID**, Microsoft's identity service, using the tenant that came with the Azure subscription. The API never sees a password: it only checks tokens that Entra has signed.
 
-**The flow** (the web app's half arrives in iteration 3b):
+**The flow:**
 
-1. The web app sends the user to Microsoft's sign-in page. They sign in with their own Microsoft or Google account, or a one-time code by email. Relatives are added to the tenant as *guests*.
-2. Entra checks the user has been given a role in the app. If not, it refuses them right there (*Assignment required*).
-3. Entra redirects back to the web app with an **access token**: a signed JWT saying who the user is (`name`), which app it's for (`aud`, the client ID), and their roles (`roles`, such as `Family.Viewer`). It's valid for about an hour.
-4. The web app sends the token with each API call, in an `Authorization: Bearer …` header. That's why CORS now allows the `Authorization` header.
+1. **Sign in** sends the browser to Microsoft's sign-in page (a full-page redirect). Users sign in with their own Microsoft or Google account, or a one-time code by email. Relatives are added to the tenant as *guests*.
+2. Entra checks the user has been given a role in the app. If not, it refuses them right there (*Assignment required*, error `AADSTS50105`), and the page shows a message saying they haven't been given access.
+3. Entra redirects back to the web app with a one-time **authorisation code**. The web app exchanges the code for tokens. The **access token** is a signed JWT saying who the user is (`name`), which app it's for (`aud`, the client ID), and their roles (`roles`, such as `Family.Viewer`). It's valid for about an hour.
+4. The web app sends the access token with each API call, in an `Authorization: Bearer …` header. That's why CORS allows the `Authorization` header.
 5. The API validates the token: Entra's signature, issuer, audience and expiry. Then it checks the user has a family role.
+
+**In the web app** ([`web/src/shared/auth/`](web/src/shared/auth)):
+
+- **MSAL** (`@azure/msal-browser`, the Microsoft Authentication Library) handles all of steps 1 to 4.
+- It uses the **authorisation code flow with PKCE** ("pixy"), the standard for browser apps. A browser can't keep a client secret, so instead each sign-in creates a one-off random secret, and only its hash goes into the sign-in request. The code from step 3 is useless without the original. That stops anyone who intercepts the code from redeeming it.
+- MSAL keeps tokens in `sessionStorage`, so they're forgotten when the tab closes. It renews the access token behind the scenes until the sign-in session ends. After that, the next API call sends the user back through sign-in.
+- Sign-in uses full-page redirects, not pop-ups (pop-ups are unreliable on phones). So the signed-in user can only change on a page load. [`main.tsx`](web/src/main.tsx) works out who's signed in once, before rendering, and also completes a sign-in when the page loads on the way back from Microsoft.
+- **Components never use MSAL directly.** They use a small `Auth` interface ([`auth.ts`](web/src/shared/auth/auth.ts)): the user, sign in, sign out, get a token. [`msalAuth.ts`](web/src/shared/auth/msalAuth.ts) is the only file that knows about MSAL, and it's provided to the app through React context. That keeps MSAL replaceable, and lets tests supply a pretend user ([`renderApp.tsx`](web/src/test/renderApp.tsx)).
+- **Settings:** the client ID and tenant ID come from `VITE_ENTRA_CLIENT_ID` and `VITE_ENTRA_TENANT_ID` at build time. The API scope (`api://<tenant>/familytree/Family.Read`) is derived from the tenant ID and must match `infra/entra.bicep`. If the settings are missing, the app runs with sign-in turned off.
+- The header shows **Sign in**, or once signed in, "Signed in as … (Family admin)", confirmed by calling `/api/v1/me`. That proves the whole chain works.
 
 **The Entra setup** is defined in [`infra/entra.bicep`](infra/entra.bicep): one app registration, "Family Tree", with a `Family.Read` scope and two app roles, `Family.Viewer` and `Family.Admin`. You deploy it by hand rather than through the pipeline, so the GitHub deploy identity never needs permission to change the directory. [docs/setup-entra.md](docs/setup-entra.md) explains each part and covers deploying it, configuring local development, and giving someone access.
 
@@ -131,7 +144,7 @@ Only invited family members can use the app. Sign-in is handled by **Microsoft E
 - **Deny by default.** A *fallback authorisation policy* applies to every endpoint that doesn't say otherwise. It requires a signed-in user with `Family.Viewer` or `Family.Admin`. New endpoints are therefore protected automatically. `/health` opts out with `.AllowAnonymous()`.
 - **Status codes.** No valid token gives **401 Unauthorized**. A valid token without a family role gives **403 Forbidden**.
 - **Fail fast.** If the `AzureAd` settings are missing, the API refuses to start, with a message naming the missing setting. Otherwise it would start and then fail on every request.
-- **`GET /api/v1/me`** returns the signed-in user's name and family roles. It's the first protected endpoint, and the web app will use it to show who's signed in.
+- **`GET /api/v1/me`** returns the signed-in user's name and family roles. It's the first protected endpoint, and the web app uses it to show who's signed in.
 
 **In the tests**, there's no way to get a real Entra token, so [`TestUsers.cs`](tests/FamilyTree.Api.Tests/TestUsers.cs) swaps in a test-only sign-in scheme. It creates a user from request headers, with the same `name` and `roles` claims a real token has. Requests with no user still go through the real Microsoft.Identity.Web pipeline, so the 401 test exercises the real thing.
 
@@ -197,6 +210,7 @@ The one-off setup for all of this is in [docs/setup-azure.md](docs/setup-azure.m
 | Sign-in app registration, roles, redirect URIs | [`infra/entra.bicep`](infra/entra.bicep), deployed by hand | Redeploy when the web app's addresses change. See [docs/setup-entra.md](docs/setup-entra.md). |
 | API's sign-in settings in Azure | Container App environment variables `AzureAd__TenantId` and `AzureAd__ClientId`, set by Bicep | The client ID comes from the GitHub `production` variable `ENTRA_CLIENT_ID`; the tenant is the subscription's own. |
 | API's sign-in settings locally | .NET user secrets (`dotnet user-secrets list --project src/FamilyTree.Api`) | Stored in your Windows profile, never in the repo. |
+| Web app's sign-in settings | Build-time `VITE_ENTRA_CLIENT_ID` and `VITE_ENTRA_TENANT_ID`. In Azure they come from the GitHub variables `ENTRA_CLIENT_ID` and `AZURE_TENANT_ID`; locally, from `web/.env.local` (git-ignored; template in `web/.env.example`). | Baked into the published JavaScript, which is fine: neither is a secret. |
 | Who can sign in, and with which role | Azure portal → Entra ID → Enterprise applications → Family Tree → Users and groups | Not in code: these are people. |
 | .NET SDK version and test runner | [`global.json`](global.json) | Pins .NET 10 and opts in to Microsoft.Testing.Platform (see gotchas). |
 | npm package versions | `web/package.json` (exact versions) and `web/package-lock.json` | `web/.npmrc` has `save-exact=true`, so new packages are pinned too. |
@@ -275,7 +289,7 @@ az containerapp show -g rg-familytree -n familytree-api --query "properties.temp
 
 The app is being built in small iterations, one pull request each, so the PR history is the record of what changed and why. Coming next, roughly in order:
 
-- Sign-in in the web app (iteration 3b). The API side is done: it accepts only Entra tokens carrying a family role.
+- Hardening: security headers (including a Content Security Policy), rate limiting, consistent error responses.
 - A database (Azure SQL) for people, families and life events.
 - An editing UI that only Andrew can use.
 - Search, profiles and tree views for viewers.

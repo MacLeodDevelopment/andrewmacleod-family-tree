@@ -9,6 +9,7 @@ export default defineConfig({
     // Forward API calls to the local API (`dotnet run --project src/FamilyTree.Api`).
     proxy: {
       '/health': 'http://localhost:5080',
+      '/api': 'http://localhost:5080',
     },
   },
   test: {

@@ -1,3 +1,4 @@
+import { Account } from './features/account/Account.tsx'
 import { ApiStatus } from './features/status/ApiStatus.tsx'
 
 export default function App() {
@@ -5,6 +6,7 @@ export default function App() {
     <>
       <header className="site-header">
         <strong>Family Tree</strong>
+        <Account />
       </header>
       <main className="container">
         <h1>MacLeod Family Tree</h1>

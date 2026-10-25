@@ -198,8 +198,11 @@ jobs:
 
       - name: Build
         working-directory: web
+        # Baked into the JavaScript at build time. None of these are secrets.
         env:
           VITE_API_BASE_URL: ${{ needs.infra.outputs.apiUrl }}
+          VITE_ENTRA_CLIENT_ID: ${{ vars.ENTRA_CLIENT_ID }}
+          VITE_ENTRA_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
         run: |
           npm ci
           npm run build

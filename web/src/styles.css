@@ -107,8 +107,11 @@ a:focus {
 /* --------- LAYOUT --------- */
 .site-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  height: var(--header-height);
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  min-height: var(--header-height);
   padding: 1rem 2rem;
   background-color: var(--header-bg);
   border-bottom: 2px solid var(--border);
@@ -134,6 +137,33 @@ h1 {
   font-size: 0.95rem;
   border-top: 2px solid var(--border);
   background-color: var(--footer-bg);
+}
+
+/* --------- ACCOUNT --------- */
+.account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  font-size: 0.95rem;
+}
+
+.account-error {
+  color: var(--danger);
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background-color: var(--card-bg);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.35rem 1rem;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--link);
 }
 
 /* --------- API STATUS --------- */
