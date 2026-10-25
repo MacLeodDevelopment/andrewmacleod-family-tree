@@ -142,7 +142,10 @@ Only invited family members can use the app. Sign-in is handled by **Microsoft E
 - Sign-in uses full-page redirects, not pop-ups (pop-ups are unreliable on phones). So the signed-in user can only change on a page load. [`main.tsx`](web/src/main.tsx) works out who's signed in once, before rendering, and also completes a sign-in when the page loads on the way back from Microsoft.
 - **Components never use MSAL directly.** They use a small `Auth` interface ([`auth.ts`](web/src/shared/auth/auth.ts)): the user, sign in, sign out, get a token. [`msalAuth.ts`](web/src/shared/auth/msalAuth.ts) is the only file that knows about MSAL, and it's provided to the app through React context. That keeps MSAL replaceable, and lets tests supply a pretend user ([`renderApp.tsx`](web/src/test/renderApp.tsx)).
 - **Settings:** the client ID and tenant ID come from `VITE_ENTRA_CLIENT_ID` and `VITE_ENTRA_TENANT_ID` at build time. The API scope (`api://<tenant>/familytree/Family.Read`) is derived from the tenant ID and must match `infra/entra.bicep`. If the settings are missing, the app runs with sign-in turned off.
-- The header shows **Sign in**, or once signed in, "Signed in as … (Family admin)", confirmed by calling `/api/v1/me`. That proves the whole chain works.
+- The header shows **Sign in**. Once signed in, it shows "Signed in as **Andrew MacLeod** · andrewmacleod.com@gmail.com · Family admin", confirmed by calling `/api/v1/me`, which proves the whole chain works.
+  - The username matters because many people have several Microsoft accounts (work, personal, an old Hotmail). "Which account am I signed in with?" is the first question when someone can't get in, and the username is what you look up in Entra.
+  - Profiles don't always have a display name. The header then shows just the username, and plain "Signed in" if there's neither.
+  - If a signed-in account has no family role, the message names that account.
 
 **The Entra setup** is defined in [`infra/entra.bicep`](infra/entra.bicep): one app registration, "Family Tree", with a `Family.Read` scope and two app roles, `Family.Viewer` and `Family.Admin`. You deploy it by hand rather than through the pipeline, so the GitHub deploy identity never needs permission to change the directory. [docs/setup-entra.md](docs/setup-entra.md) explains each part and covers deploying it, configuring local development, and giving someone access.
 
@@ -152,9 +155,15 @@ Only invited family members can use the app. Sign-in is handled by **Microsoft E
 - **Deny by default.** A *fallback authorisation policy* applies to every endpoint that doesn't say otherwise. It requires a signed-in user with `Family.Viewer` or `Family.Admin`. New endpoints are therefore protected automatically. `/health` opts out with `.AllowAnonymous()`.
 - **Status codes.** No valid token gives **401 Unauthorized**. A valid token without a family role gives **403 Forbidden**.
 - **Fail fast.** If the `AzureAd` settings are missing, the API refuses to start, with a message naming the missing setting. Otherwise it would start and then fail on every request.
-- **`GET /api/v1/me`** returns the signed-in user's name and family roles. It's the first protected endpoint, and the web app uses it to show who's signed in.
+- **`GET /api/v1/me`** returns the signed-in user's `name`, `username` and family `roles`. It's the first protected endpoint, and the web app uses it to show who's signed in.
+  - `name` comes from the token's `name` claim, the display name from their profile.
+  - `username` comes from `preferred_username`: the account they signed in with, usually an email address. It's for display only. It can change, so never use it to decide access; that's what roles are for.
+  - Either is `null`, not an empty string, when the token doesn't carry it.
 
-**In the tests**, there's no way to get a real Entra token, so [`TestUsers.cs`](tests/FamilyTree.Api.Tests/TestUsers.cs) swaps in a test-only sign-in scheme. It creates a user from request headers, with the same `name` and `roles` claims a real token has. Requests with no user still go through the real Microsoft.Identity.Web pipeline, so the 401 test exercises the real thing.
+**In the tests**, there's no way to get a real Entra token, so [`TestUsers.cs`](tests/FamilyTree.Api.Tests/TestUsers.cs) swaps in a test-only sign-in scheme.
+- It creates the user described by a small `TestUser` record (name, username, roles, any of which can be missing), with the same `name`, `preferred_username` and `roles` claims a real token has.
+- Requests with no user still go through the real Microsoft.Identity.Web pipeline, so the 401 test exercises the real thing.
+- The test host runs in a `Testing` environment, not `Development`, so it never picks up your user secrets. They once made a test pass in CI and fail on this machine.
 
 ### What happens when you merge to `main`
 

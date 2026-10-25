@@ -1,7 +1,10 @@
 import { apiUrl } from './apiUrl.ts'
 
 export interface Me {
-  name: string
+  /** Display name from the user's profile; null if they don't have one. */
+  name: string | null
+  /** The account they signed in with, usually an email address; null if unknown. */
+  username: string | null
   roles: string[]
 }
 

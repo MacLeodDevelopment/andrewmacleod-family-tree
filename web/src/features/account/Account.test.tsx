@@ -5,7 +5,7 @@ import { notConfiguredAuth } from '../../shared/auth/auth.ts'
 import { fakeAuth, renderApp, testAccessToken } from '../../test/renderApp.tsx'
 import { server } from '../../test/server.ts'
 
-const signedIn = { user: { name: 'Jean MacLeod' } }
+const signedIn = { user: { name: 'Jean MacLeod', username: 'jean@example.test' } }
 
 /** The pretend API only answers /me for requests carrying the signed-in user's token. */
 function meResponds(body: object, status = 200) {
@@ -17,6 +17,8 @@ function meResponds(body: object, status = 200) {
     ),
   )
 }
+
+const accountStatus = () => screen.getByRole('status', { name: 'Account' })
 
 describe('Account', () => {
   it('invites visitors to sign in', () => {
@@ -35,23 +37,41 @@ describe('Account', () => {
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
   })
 
-  it('shows who is signed in, and their role, as confirmed by the API', async () => {
-    meResponds({ name: 'Jean MacLeod', roles: ['Family.Admin'] })
+  it('shows who is signed in, with which account and role, as confirmed by the API', async () => {
+    meResponds({ name: 'Jean MacLeod', username: 'jean@example.test', roles: ['Family.Admin'] })
 
     renderApp(fakeAuth(signedIn))
 
     await waitFor(() =>
-      expect(screen.getByRole('status', { name: 'Account' })).toHaveTextContent('Signed in as Jean MacLeod (Family admin)'),
+      expect(accountStatus()).toHaveTextContent('Signed in as Jean MacLeod · jean@example.test · Family admin'),
     )
   })
 
-  it('tells signed-in users without a family role that they have no access', async () => {
+  it('identifies users by their account when their profile has no display name', async () => {
+    meResponds({ name: null, username: 'jean@example.test', roles: ['Family.Viewer'] })
+
+    renderApp(fakeAuth({ user: { name: null, username: 'jean@example.test' } }))
+
+    await waitFor(() => expect(accountStatus()).toHaveTextContent('Signed in as jean@example.test · Family viewer'))
+  })
+
+  it('still makes sense when the API knows neither a name nor a username', async () => {
+    meResponds({ name: null, username: null, roles: ['Family.Viewer'] })
+
+    renderApp(fakeAuth({ user: { name: null, username: null } }))
+
+    await waitFor(() => expect(accountStatus()).toHaveTextContent(/^Signed in · Family viewer$/))
+  })
+
+  it('tells signed-in users without a family role which account has no access', async () => {
     meResponds({}, 403)
 
     renderApp(fakeAuth(signedIn))
 
     await waitFor(() =>
-      expect(screen.getByRole('status', { name: 'Account' })).toHaveTextContent("doesn't have access to the family tree"),
+      expect(accountStatus()).toHaveTextContent(
+        "You're signed in as jean@example.test, but that account doesn't have access to the family tree.",
+      ),
     )
   })
 
@@ -60,13 +80,11 @@ describe('Account', () => {
 
     renderApp(fakeAuth(signedIn))
 
-    await waitFor(() =>
-      expect(screen.getByRole('status', { name: 'Account' })).toHaveTextContent("the family tree couldn't be reached"),
-    )
+    await waitFor(() => expect(accountStatus()).toHaveTextContent("the family tree couldn't be reached"))
   })
 
   it('lets signed-in users sign out', () => {
-    meResponds({ name: 'Jean MacLeod', roles: ['Family.Viewer'] })
+    meResponds({ name: 'Jean MacLeod', username: 'jean@example.test', roles: ['Family.Viewer'] })
     const auth = fakeAuth(signedIn)
     renderApp(auth)
 
