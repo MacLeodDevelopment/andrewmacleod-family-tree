@@ -158,8 +158,6 @@ h1 {
 .role-badge {
   display: inline-grid;
   place-items: center;
-  vertical-align: middle;
-  margin-left: 0.25rem;
   min-height: 1.75em;
   padding: 0 0.65rem;
   border: 1px solid var(--border);
@@ -168,6 +166,11 @@ h1 {
   font-size: 0.85em;
   line-height: 1.6;
   white-space: nowrap;
+}
+
+.role-badge--problem {
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .role-badge::before {
@@ -226,10 +229,69 @@ h1 {
   }
 }
 
+/* Who's signed in: a fixed-size block of two lines, so nothing in the header moves
+   while it loads, whatever the text. Long names and emails are cut short with "…"
+   (the full text is in a tooltip). */
+.account-card {
+  display: grid;
+  width: 17rem;
+  max-width: 100%;
+  line-height: 1.35;
+}
+
+/* On phones there isn't room for the card beside the button, so the header becomes
+   two rows: the title and the button on top, the card across the full width below.
+   (`display: contents` lets the card and button, which share a wrapper, be placed in
+   different rows.) The card's width still depends only on the screen, never on its
+   text, so it can't jump either. */
+@media (max-width: 420px) {
+  .site-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'title action'
+      'account account';
+  }
+
+  .site-header > strong {
+    grid-area: title;
+  }
+
+  .account {
+    display: contents;
+  }
+
+  .account > button {
+    grid-area: action;
+  }
+
+  .account-card,
+  .account-error,
+  .account-message {
+    grid-area: account;
+    width: auto;
+  }
+}
+
+.account-name,
+.account-username {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Second line: the username takes whatever space is left; the badge is pinned to the
+   right, so it doesn't move with the username's length. */
+.account-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.5rem;
+  font-size: 0.9em;
+}
+
 .account-username {
   color: var(--muted);
-  /* Long email addresses mustn't push the header wider than a phone screen. */
-  overflow-wrap: anywhere;
 }
 
 button {
