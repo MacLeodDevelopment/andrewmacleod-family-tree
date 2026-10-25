@@ -1,9 +1,8 @@
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace FamilyTree.Api.Tests;
 
-public class CorsTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+public class CorsTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     private const string SpaOrigin = "https://family.example.test";
 
@@ -21,6 +20,21 @@ public class CorsTests(WebApplicationFactory<Program> factory) : IClassFixture<W
         var response = await CreateClient().SendAsync(request, TestContext.Current.CancellationToken);
 
         Assert.Equal(SpaOrigin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
+    }
+
+    [Fact]
+    public async Task The_family_tree_web_app_can_send_its_sign_in_token()
+    {
+        // Browsers ask first (a "preflight" OPTIONS request) before sending an Authorization header cross-origin.
+        var preflight = new HttpRequestMessage(HttpMethod.Options, "/api/v1/me");
+        preflight.Headers.Add("Origin", SpaOrigin);
+        preflight.Headers.Add("Access-Control-Request-Method", "GET");
+        preflight.Headers.Add("Access-Control-Request-Headers", "authorization");
+
+        var response = await CreateClient().SendAsync(preflight, TestContext.Current.CancellationToken);
+
+        Assert.True(response.IsSuccessStatusCode, $"Preflight failed with {(int)response.StatusCode}");
+        Assert.Contains("authorization", response.Headers.GetValues("Access-Control-Allow-Headers").Single(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
