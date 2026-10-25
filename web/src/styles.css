@@ -152,6 +152,25 @@ h1 {
   color: var(--danger);
 }
 
+.account-detail {
+  color: var(--muted);
+}
+
+/* For text that arrives after the page has drawn: appear gently rather than snap in.
+   Turned off under prefers-reduced-motion (below). */
+.fade-in {
+  animation: fade-in 0.25s ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .account-username {
   color: var(--muted);
   /* Long email addresses mustn't push the header wider than a phone screen. */

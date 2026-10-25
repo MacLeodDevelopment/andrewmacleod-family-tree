@@ -146,6 +146,7 @@ Only invited family members can use the app. Sign-in is handled by **Microsoft E
   - The username matters because many people have several Microsoft accounts (work, personal, an old Hotmail). "Which account am I signed in with?" is the first question when someone can't get in, and the username is what you look up in Entra.
   - Profiles don't always have a display name. The header then shows just the username, and plain "Signed in" if there's neither.
   - If a signed-in account has no family role, the message names that account.
+  - The name and username come from sign-in itself, so they're shown immediately and never change; only the role, from the API, fades in. "Checking your access…" appears only if the API takes over a second (for example, a cold start). On a fast connection it would just flash up and vanish, which looks like a glitch.
 
 **The Entra setup** is defined in [`infra/entra.bicep`](infra/entra.bicep): one app registration, "Family Tree", with a `Family.Read` scope and two app roles, `Family.Viewer` and `Family.Admin`. You deploy it by hand rather than through the pipeline, so the GitHub deploy identity never needs permission to change the directory. [docs/setup-entra.md](docs/setup-entra.md) explains each part and covers deploying it, configuring local development, and giving someone access.
 
