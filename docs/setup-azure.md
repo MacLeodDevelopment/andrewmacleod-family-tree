@@ -145,6 +145,8 @@ echo "AZURE_SUBSCRIPTION_ID=$SUBSCRIPTION_ID"
 echo "AZURE_RESOURCE_GROUP=$RESOURCE_GROUP"
 ```
 
+One more variable, `ENTRA_CLIENT_ID`, comes from the sign-in setup in [setup-entra.md](setup-entra.md). The Deploy workflow refuses to run without it.
+
 ## 7. Deploy
 
 Merge to `main`, or run **Actions → Deploy → Run workflow**. The workflow:

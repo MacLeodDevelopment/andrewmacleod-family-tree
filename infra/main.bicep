@@ -19,6 +19,9 @@ param apiImage string = 'mcr.microsoft.com/dotnet/samples:aspnetapp'
 @description('Custom domain for the web app, such as family.example.com. Leave empty until a DNS CNAME record for it points at the Static Web App\'s default hostname, or the deployment fails validation.')
 param webCustomDomain string = ''
 
+@description('Client (application) ID of the "Family Tree" Entra app registration, from deploying infra/entra.bicep. The API validates sign-in tokens issued for it, and refuses to start without it.')
+param entraClientId string
+
 // Built-in role: AcrPull.
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 
@@ -143,6 +146,15 @@ resource api 'Microsoft.App/containerApps@2025-01-01' = {
           }
           env: concat(
             [
+              // Sign-in: which Entra tenant and app registration access tokens must be issued by and for.
+              {
+                name: 'AzureAd__TenantId'
+                value: tenant().tenantId
+              }
+              {
+                name: 'AzureAd__ClientId'
+                value: entraClientId
+              }
               {
                 name: 'Cors__AllowedOrigins__0'
                 value: 'https://${web.properties.defaultHostname}'

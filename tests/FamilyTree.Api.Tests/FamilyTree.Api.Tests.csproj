@@ -13,6 +13,14 @@
     <PackageReference Include="xunit.v3" Version="4.0.2" />
   </ItemGroup>
 
+  <!-- Microsoft.Identity.Web 4.16.1 brings in 10.0.10, which has known vulnerabilities
+       (GHSA-7hqp-7c5m-4vq6 and others). The API itself uses the ASP.NET Core shared
+       framework's copy; this test project isn't a web project, so it needs the pin.
+       Remove once Microsoft.Identity.Web depends on 10.0.13 or later. -->
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.13" />
+  </ItemGroup>
+
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>

@@ -18,6 +18,8 @@ A private, invite-only family tree for the MacLeod family, served at `family.and
 
 ## Run locally
 
+The API needs its sign-in settings (the Entra tenant ID and the app's client ID) and won't start without them. Set them once as .NET user secrets: see [setup-entra.md, step 3](docs/setup-entra.md#3-configure-local-development).
+
 Start the API (http://localhost:5080):
 
 ```sh
@@ -109,13 +111,40 @@ Locally, none of this is needed. The Vite dev server proxies `/health` (and late
 
 Vite replaces `import.meta.env.VITE_*` references with literal values **at build time**. The deploy workflow builds the front end with `VITE_API_BASE_URL` set to the API's address (taken from the Bicep deployment's outputs), so the address is baked into the published JavaScript. Locally it's unset, and [`apiUrl.ts`](web/src/shared/api/apiUrl.ts) falls back to the page's own origin, which is where the Vite proxy picks calls up.
 
+### Sign-in and access control
+
+Only invited family members can use the app. Sign-in is handled by **Microsoft Entra ID**, Microsoft's identity service, using the tenant that came with the Azure subscription. The API never sees a password: it only checks tokens that Entra has signed.
+
+**The flow** (the web app's half arrives in iteration 3b):
+
+1. The web app sends the user to Microsoft's sign-in page. They sign in with their own Microsoft or Google account, or a one-time code by email. Relatives are added to the tenant as *guests*.
+2. Entra checks the user has been given a role in the app. If not, it refuses them right there (*Assignment required*).
+3. Entra redirects back to the web app with an **access token**: a signed JWT saying who the user is (`name`), which app it's for (`aud`, the client ID), and their roles (`roles`, such as `Family.Viewer`). It's valid for about an hour.
+4. The web app sends the token with each API call, in an `Authorization: Bearer …` header. That's why CORS now allows the `Authorization` header.
+5. The API validates the token: Entra's signature, issuer, audience and expiry. Then it checks the user has a family role.
+
+**The Entra setup** is defined in [`infra/entra.bicep`](infra/entra.bicep): one app registration, "Family Tree", with a `Family.Read` scope and two app roles, `Family.Viewer` and `Family.Admin`. You deploy it by hand rather than through the pipeline, so the GitHub deploy identity never needs permission to change the directory. [docs/setup-entra.md](docs/setup-entra.md) explains each part and covers deploying it, configuring local development, and giving someone access.
+
+**In the API** ([`Program.cs`](src/FamilyTree.Api/Program.cs)):
+
+- **Microsoft.Identity.Web** is Microsoft's library for validating Entra tokens in ASP.NET Core. It reads the tenant and client IDs from the `AzureAd` configuration section. In Azure, Bicep sets these as environment variables, `AzureAd__TenantId` and `AzureAd__ClientId`. Locally they come from user secrets.
+- **Deny by default.** A *fallback authorisation policy* applies to every endpoint that doesn't say otherwise. It requires a signed-in user with `Family.Viewer` or `Family.Admin`. New endpoints are therefore protected automatically. `/health` opts out with `.AllowAnonymous()`.
+- **Status codes.** No valid token gives **401 Unauthorized**. A valid token without a family role gives **403 Forbidden**.
+- **Fail fast.** If the `AzureAd` settings are missing, the API refuses to start, with a message naming the missing setting. Otherwise it would start and then fail on every request.
+- **`GET /api/v1/me`** returns the signed-in user's name and family roles. It's the first protected endpoint, and the web app will use it to show who's signed in.
+
+**In the tests**, there's no way to get a real Entra token, so [`TestUsers.cs`](tests/FamilyTree.Api.Tests/TestUsers.cs) swaps in a test-only sign-in scheme. It creates a user from request headers, with the same `name` and `roles` claims a real token has. Requests with no user still go through the real Microsoft.Identity.Web pipeline, so the 401 test exercises the real thing.
+
 ### What happens when you merge to `main`
 
 Pull requests run [`ci.yml`](.github/workflows/ci.yml): it builds, lints and tests the API and the front end, and deploys nothing. Merging to `main` runs [`deploy.yml`](.github/workflows/deploy.yml). It reuses `ci.yml` as its first job and runs these jobs in order, stopping at the first failure:
 
 1. **Test**: the same checks as a pull request, so nothing untested reaches Azure.
 2. **Infrastructure**: deploys `infra/main.bicep`. Before that, it looks up which API image is *currently running* and passes it in. Otherwise the template's placeholder image would replace the real API on every deploy. This job also collects Bicep's outputs (registry name, API and web addresses) for the later jobs.
-3. **API**: builds the image, pushes it to the registry tagged with the commit SHA, and points the Container App at it. Container Apps then starts a new *revision* (an immutable snapshot of the app's configuration and image) and moves traffic to it. A smoke test calls `/health`, retrying to allow for a cold start. If a custom domain is set, a second test checks the API returns the right CORS header for it.
+3. **API**: builds the image, pushes it to the registry tagged with the commit SHA, and points the Container App at it. Container Apps then starts a new *revision* (an immutable snapshot of the app's configuration and image) and moves traffic to it. Smoke tests then check:
+   - `/health` responds, retrying to allow for a cold start.
+   - `/api/v1/me` refuses an anonymous request with 401, which proves sign-in is enforced.
+   - If a custom domain is set, the API returns the right CORS header for it.
 4. **Web app**: builds the front end with the API's address baked in, uploads `web/dist` to the Static Web App, then checks the page loads and has the expected title.
 
 The run's summary page lists the addresses it deployed to. Deploys are queued rather than run in parallel (`concurrency: deploy-production`), so two quick merges can't overlap.
@@ -147,7 +176,9 @@ The third is at subscription scope, because that's where Azure puts the thing it
 
 **The Static Web App's upload token** is a secret the upload action requires. The workflow fetches it from Azure during each run (using the OIDC sign-in) and masks it in the logs, rather than storing it in GitHub.
 
-The non-secret identifiers the workflow needs live as **variables on the `production` environment** in GitHub (Settings → Environments → production): `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, and optionally `WEB_CUSTOM_DOMAIN`.
+The non-secret identifiers the workflow needs live as **variables on the `production` environment** in GitHub (Settings → Environments → production): `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `ENTRA_CLIENT_ID`, and optionally `WEB_CUSTOM_DOMAIN`. Don't confuse the two client IDs:
+- `AZURE_CLIENT_ID` is the *deploy identity* that GitHub signs in to Azure as.
+- `ENTRA_CLIENT_ID` is the *Family Tree app registration* that family members sign in to.
 
 The one-off setup for all of this is in [docs/setup-azure.md](docs/setup-azure.md): resource group, deploy identity, federated credential, role assignments, GitHub environment and DNS.
 
@@ -160,6 +191,10 @@ The one-off setup for all of this is in [docs/setup-azure.md](docs/setup-azure.m
 | Custom domain | GitHub `production` variable `WEB_CUSTOM_DOMAIN` | Empty or missing means no custom domain. Set it only once the DNS CNAME exists, because Azure validates the domain during the deploy. |
 | API's allowed browser origins | Container App environment variables, set by Bicep | Derived from the Static Web App's address and the custom domain. Don't edit them in the portal: the next deploy overwrites them. |
 | API address used by the front end | Baked into the front-end build | From Bicep's outputs during the deploy; unset locally. |
+| Sign-in app registration, roles, redirect URIs | [`infra/entra.bicep`](infra/entra.bicep), deployed by hand | Redeploy when the web app's addresses change. See [docs/setup-entra.md](docs/setup-entra.md). |
+| API's sign-in settings in Azure | Container App environment variables `AzureAd__TenantId` and `AzureAd__ClientId`, set by Bicep | The client ID comes from the GitHub `production` variable `ENTRA_CLIENT_ID`; the tenant is the subscription's own. |
+| API's sign-in settings locally | .NET user secrets (`dotnet user-secrets list --project src/FamilyTree.Api`) | Stored in your Windows profile, never in the repo. |
+| Who can sign in, and with which role | Azure portal → Entra ID → Enterprise applications → Family Tree → Users and groups | Not in code: these are people. |
 | .NET SDK version and test runner | [`global.json`](global.json) | Pins .NET 10 and opts in to Microsoft.Testing.Platform (see gotchas). |
 | npm package versions | `web/package.json` (exact versions) and `web/package-lock.json` | `web/.npmrc` has `save-exact=true`, so new packages are pinned too. |
 
@@ -202,6 +237,11 @@ These are mostly lessons learned the hard way.
   - Arguments full of brackets and quotes get mangled. Put the value in a file and pass `@filename`, which `az` reads directly.
 - **`dotnet test` on .NET 10 needs Microsoft.Testing.Platform.** .NET 10's `dotnet test` dropped the old VSTest mode for test frameworks like xUnit v3. [`global.json`](global.json) opts in to the new runner. The test project must also be an executable (`<OutputType>Exe</OutputType>`), which xUnit v3 requires.
 - **Front-end tests that wait for async UI should use `waitFor`, not `findBy…` followed by a text assertion.** The status element exists immediately ("Checking the API…"), so `findByRole('status')` returns before the fetch completes. One test passed locally and failed on CI's slower runners until it was fixed.
+- **Vulnerable packages fail the build.** [`Directory.Build.props`](Directory.Build.props) turns NuGet's audit warnings for moderate, high and critical vulnerabilities into errors. Every restore checks direct and *transitive* packages against GitHub's advisory database.
+  - So a newly published advisory can suddenly break an unchanged build. That's intended: fix it, don't suppress it.
+  - Find the culprit with `dotnet list package --vulnerable --include-transitive`, and why it's there with `dotnet nuget why <project> <package>`. Usually the fix is to pin the patched version with a direct `PackageReference` and a comment saying when to remove it.
+  - Microsoft.Identity.Web 4.16.1 currently needs two such pins, `System.Security.Cryptography.Pkcs` in the API project and `System.Security.Cryptography.Xml` in the test project. Packages that are part of the ASP.NET Core shared framework, such as `.Xml`, can't be pinned in the web project (warning NU1510); they're patched by updating the runtime.
+- **Can't sign in to Azure CLI: `AADSTS50076 … you must use multi-factor authentication`.** The tenant enforces MFA (Entra *security defaults*), and the CLI's session has expired. Run `az login --tenant d7ca0a01-3090-41f1-bb26-431ec7b60471` again.
 - **This repo is public.** Code is fine; family data, exports and secrets are not. `.gitignore` blocks common genealogy file types as a safety net.
 
 ### Everyday tasks
@@ -227,7 +267,7 @@ az containerapp show -g rg-familytree -n familytree-api --query "properties.temp
 
 The app is being built in small iterations, one pull request each, so the PR history is the record of what changed and why. Coming next, roughly in order:
 
-- Sign-in with Microsoft Entra ID, so only invited family members can use it. Relatives will be invited as guests, and the API will check a role on every request.
+- Sign-in in the web app (iteration 3b). The API side is done: it accepts only Entra tokens carrying a family role.
 - A database (Azure SQL) for people, families and life events.
 - An editing UI that only Andrew can use.
 - Search, profiles and tree views for viewers.

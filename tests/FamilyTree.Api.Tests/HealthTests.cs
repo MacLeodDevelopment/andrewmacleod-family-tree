@@ -1,12 +1,11 @@
 using System.Net;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace FamilyTree.Api.Tests;
 
-public class HealthTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+public class HealthTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     [Fact]
-    public async Task Health_check_reports_healthy()
+    public async Task Health_check_reports_healthy_without_signing_in()
     {
         var client = factory.CreateClient();
 
