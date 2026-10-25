@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ApiError, fetchMe, type Me } from '../../shared/api/me.ts'
+import type { SignedInUser } from '../../shared/auth/auth.ts'
 import { useAuth } from '../../shared/auth/authContext.ts'
 
 const roleNames: Record<string, string> = {
@@ -36,10 +37,10 @@ export function Account() {
     )
   }
 
-  return <SignedIn />
+  return <SignedIn user={auth.user} />
 }
 
-function SignedIn() {
+function SignedIn({ user }: { user: SignedInUser }) {
   const auth = useAuth()
   const [state, setState] = useState<MeState>({ kind: 'loading' })
 
@@ -61,7 +62,7 @@ function SignedIn() {
   return (
     <div className="account">
       <p role="status" aria-label="Account">
-        {describe(state, auth.user?.name ?? '')}
+        <AccountStatus state={state} user={user} />
       </p>
       <button type="button" onClick={auth.signOut}>
         Sign out
@@ -70,17 +71,60 @@ function SignedIn() {
   )
 }
 
-function describe(state: MeState, name: string): string {
+function AccountStatus({ state, user }: { state: MeState; user: SignedInUser }) {
   switch (state.kind) {
     case 'loading':
-      return `Signed in as ${name}. Checking your access…`
+      return (
+        <>
+          <Identity name={user.name} username={user.username} />. Checking your access…
+        </>
+      )
     case 'loaded': {
+      // The API's view of the user, which is what access is actually based on.
       const roles = state.me.roles.map((role) => roleNames[role] ?? role).join(', ')
-      return `Signed in as ${state.me.name} (${roles})`
+      return (
+        <>
+          <Identity name={state.me.name} username={state.me.username} />
+          {' · '}
+          {roles}
+        </>
+      )
     }
     case 'noAccess':
-      return `Signed in as ${name}, but your account doesn't have access to the family tree.`
+      // Name the account, so the user can tell whether they signed in with the wrong one.
+      return (
+        <>
+          You're signed in as {user.username ?? user.name ?? 'an account'}, but that account doesn't have access to the
+          family tree.
+        </>
+      )
     case 'failed':
-      return `Signed in as ${name}, but the family tree couldn't be reached. Please try again later.`
+      return (
+        <>
+          <Identity name={user.name} username={user.username} />, but the family tree couldn't be reached. Please try
+          again later.
+        </>
+      )
   }
+}
+
+/**
+ * "Signed in as <name> · <username>". Profiles don't always have a display name, so
+ * fall back to the username, and to plain "Signed in" if there's neither.
+ */
+function Identity({ name, username }: { name: string | null; username: string | null }) {
+  if (!name && !username) {
+    return <>Signed in</>
+  }
+  return (
+    <>
+      Signed in as <strong>{name ?? username}</strong>
+      {name && username && (
+        <>
+          {' · '}
+          <span className="account-username">{username}</span>
+        </>
+      )}
+    </>
+  )
 }

@@ -44,7 +44,7 @@ export async function createMsalAuth(config: SignInConfig): Promise<Auth> {
 
   return {
     isConfigured: true,
-    user: account ? { name: account.name ?? account.username } : null,
+    user: account ? { name: account.name || null, username: account.username || null } : null,
     signInError,
     signIn: () => void msal.loginRedirect({ scopes: [config.apiScope] }),
     signOut: () => void msal.logoutRedirect({ account }),

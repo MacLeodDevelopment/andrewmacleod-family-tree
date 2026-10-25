@@ -19,7 +19,10 @@ export interface Auth {
 }
 
 export interface SignedInUser {
-  readonly name: string
+  /** Display name from the user's profile; null if they don't have one. */
+  readonly name: string | null
+  /** The account they signed in with, usually an email address. */
+  readonly username: string | null
 }
 
 /** Used when the build has no sign-in settings: nobody can sign in. */

@@ -152,6 +152,12 @@ h1 {
   color: var(--danger);
 }
 
+.account-username {
+  color: var(--muted);
+  /* Long email addresses mustn't push the header wider than a phone screen. */
+  overflow-wrap: anywhere;
+}
+
 button {
   font: inherit;
   color: var(--text);
