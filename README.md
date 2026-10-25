@@ -240,6 +240,11 @@ These are mostly lessons learned the hard way.
   - Arguments full of brackets and quotes get mangled. Put the value in a file and pass `@filename`, which `az` reads directly.
 - **`dotnet test` on .NET 10 needs Microsoft.Testing.Platform.** .NET 10's `dotnet test` dropped the old VSTest mode for test frameworks like xUnit v3. [`global.json`](global.json) opts in to the new runner. The test project must also be an executable (`<OutputType>Exe</OutputType>`), which xUnit v3 requires.
 - **Front-end tests that wait for async UI should use `waitFor`, not `findBy…` followed by a text assertion.** The status element exists immediately ("Checking the API…"), so `findByRole('status')` returns before the fetch completes. One test passed locally and failed on CI's slower runners until it was fixed.
+- **A workflow step fails with only "exit code 1" and no message of its own.** GitHub runs `run:` steps with `bash -e`, which ends the script at the first command that returns non-zero, even one whose failure looks harmless.
+  - We hit this with `read`. Given input without a trailing newline, `read` still sets the variables but returns 1, which killed the revision-wait step on its first check.
+  - Feed `read` from a here-string (`<<< "$var"`), which supplies the newline.
+  - Test step scripts locally with `bash -e script.sh`, not plain `bash`.
+  - Output from `az` on Windows ends lines with `\r\n`, so scripts that parse it should strip `\r` too.
 - **Vulnerable packages fail the build.** [`Directory.Build.props`](Directory.Build.props) turns NuGet's audit warnings for moderate, high and critical vulnerabilities into errors. Every restore checks direct and *transitive* packages against GitHub's advisory database.
   - So a newly published advisory can suddenly break an unchanged build. That's intended: fix it, don't suppress it.
   - Find the culprit with `dotnet list package --vulnerable --include-transitive`, and why it's there with `dotnet nuget why <project> <package>`. Usually the fix is to pin the patched version with a direct `PackageReference` and a comment saying when to remove it.

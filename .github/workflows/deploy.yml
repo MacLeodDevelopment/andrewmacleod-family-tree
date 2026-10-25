@@ -135,9 +135,12 @@ jobs:
         run: |
           revision="${{ steps.update.outputs.revision }}"
           for attempt in $(seq 1 30); do
-            read -r health running traffic < <(az containerapp revision show \
+            # Steps run under `bash -e`. Use a here-string for `read`: fed input without a
+            # trailing newline, `read` returns 1 and silently ends the step.
+            status=$(az containerapp revision show \
               --resource-group "$RESOURCE_GROUP" --name "${{ needs.infra.outputs.apiName }}" --revision "$revision" \
-              --query "[properties.healthState, properties.runningState, properties.trafficWeight]" --output tsv | tr '\n' ' ')
+              --query "[properties.healthState, properties.runningState, properties.trafficWeight]" --output tsv | tr '\r\n' '  ')
+            read -r health running traffic <<< "$status"
             echo "Attempt $attempt: health=$health running=$running traffic=$traffic"
             if [ "$health" = "Healthy" ] && [ "$traffic" = "100" ]; then
               exit 0
