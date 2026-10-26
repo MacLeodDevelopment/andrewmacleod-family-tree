@@ -126,6 +126,40 @@ The double underscore is how ASP.NET Core maps environment variables onto nested
 
 Locally, none of this is needed. The Vite dev server proxies `/health` (and later API paths) to `localhost:5080`, so the browser only ever talks to one origin.
 
+### Errors and rate limiting in the API
+
+**Every error has the same shape.** The API returns errors as **problem details** (RFC 9457), a standard JSON body with content type `application/problem+json`:
+
+```json
+{ "type": "https://tools.ietf.org/html/rfc9110#section-15.5.5", "title": "Not Found", "status": 404, "traceId": "00-…" }
+```
+
+- **Where it comes from:** `AddProblemDetails()` registers the format. `UseStatusCodePages()` gives a body to responses that would otherwise be empty: the 401 from authentication, the 403 from authorisation, a 404 for an unknown route. `UseExceptionHandler()` turns any unhandled exception into a plain 500 in the same shape.
+- **What it hides:** outside the Development environment, the 500 says nothing about the code. No exception type, message or stack trace, which can leak things like connection strings.
+- **`traceId`:** matches the request in the logs, so an error a user reports can be found.
+- **Why it matters:** the edit screens to come will need to show validation errors, and they'll use the same shape.
+
+**Rate limiting** ([`RateLimitingExtensions.cs`](src/FamilyTree.Api/RateLimiting/RateLimitingExtensions.cs)) stops a script, a buggy page or a runaway loop from overwhelming the API or running up the Azure bill.
+
+- **Who it limits:**
+  - Each **signed-in user** has their own allowance, 120 requests a minute, keyed by their Entra object ID.
+  - **Anonymous callers** (only `/health` is open to them) get 30 a minute per IP address.
+- **When it says no:** over the limit, the API replies **429 Too Many Requests**, with a `Retry-After` header saying how many seconds to wait and a problem-details body. CORS exposes `Retry-After`, so the web app can read it.
+- **How it counts:** it's a *fixed window*. The count resets every minute and nothing is queued. Family use is nowhere near these numbers.
+- **Changing the limits:** they come from configuration (`RateLimiting:SignedInPermitsPerMinute` and `RateLimiting:AnonymousPermitsPerMinute`), so they can be changed without code. The tests use tiny ones.
+- **Real addresses behind the proxy.** In Azure every request reaches the API through the Container Apps ingress proxy (Envoy). Without help, every anonymous caller would appear to have the proxy's address and share one allowance.
+  - The proxy passes the caller's real address in `X-Forwarded-For`, and `UseForwardedHeaders()` puts it into `RemoteIpAddress`.
+  - The proxy is trusted because the app can't be reached any other way.
+  - Only the last address in the header is used, the one the proxy added, so a caller can't claim to be someone else by sending their own `X-Forwarded-For`.
+
+**The middleware order in [`Program.cs`](src/FamilyTree.Api/Program.cs) matters.** Each step wraps the ones after it:
+1. Forwarded headers, so everything after sees the real address.
+2. The exception handler and status-code pages, so every error below gets a body.
+3. CORS, so preflights are answered before authentication, and error responses still carry CORS headers the browser lets the app read.
+4. Authentication.
+5. The rate limiter, after authentication so it knows who's calling.
+6. Authorisation.
+
 ### How the front end finds the API
 
 Vite replaces `import.meta.env.VITE_*` references with literal values **at build time**. The deploy workflow builds the front end with `VITE_API_BASE_URL` set to the API's address (taken from the Bicep deployment's outputs), so the address is baked into the published JavaScript. Locally it's unset, and [`apiUrl.ts`](web/src/shared/api/apiUrl.ts) falls back to the page's own origin, which is where the Vite proxy picks calls up.
@@ -201,9 +235,10 @@ Only invited family members can use the app. Sign-in is handled by **Microsoft E
   - `username` comes from `preferred_username`: the account they signed in with, usually an email address. It's for display only. It can change, so never use it to decide access; that's what roles are for.
   - Either is `null`, not an empty string, when the token doesn't carry it.
 
-**In the tests**, there's no way to get a real Entra token, so [`TestUsers.cs`](tests/FamilyTree.Api.Tests/TestUsers.cs) swaps in a test-only sign-in scheme.
+**In the tests**, there's no way to get a real Entra token, so [`TestUsers.cs`](tests/FamilyTree.Api.Tests/TestUsers.cs) adds a test-only sign-in scheme.
 - It creates the user described by a small `TestUser` record (name, username, roles, any of which can be missing), with the same `name`, `preferred_username` and `roles` claims a real token has.
-- Requests with no user still go through the real Microsoft.Identity.Web pipeline, so the 401 test exercises the real thing.
+- A *policy scheme* chooses for each request. Requests carrying a test user (an `X-Test-User` header) are signed in as that user. Everything else goes through the real Microsoft.Identity.Web pipeline, so the 401 tests exercise the real thing.
+- Every client from one factory talks to the same in-memory API, which is what lets the rate-limiting tests check that two users have separate allowances.
 - The test host runs in a `Testing` environment, not `Development`, so it never picks up your user secrets. They once made a test pass in CI and fail on this machine.
 
 ### What happens when you merge to `main`
@@ -264,6 +299,7 @@ The one-off setup for all of this is in [docs/setup-azure.md](docs/setup-azure.m
 | Setting | Where | Notes |
 |---|---|---|
 | Resource names, regions, sizes | [`infra/main.bicep`](infra/main.bicep) | Defaults are in the file. Nothing secret. |
+| API rate limits | `RateLimiting:SignedInPermitsPerMinute` (default 120) and `RateLimiting:AnonymousPermitsPerMinute` (default 30), in [`RateLimitingExtensions.cs`](src/FamilyTree.Api/RateLimiting/RateLimitingExtensions.cs) | To change them in Azure without a code change, add `RateLimiting__SignedInPermitsPerMinute` (and so on) to the Container App's environment variables in `infra/main.bicep`. |
 | Which Azure account to deploy to | GitHub `production` environment variables (see above) | Identifiers, not credentials, but kept out of this public repo. |
 | Custom domain for the web app | GitHub `production` variable `WEB_CUSTOM_DOMAIN` | Empty or missing means no custom domain. Set it only once the DNS CNAME exists, because Azure validates the domain during the deploy. |
 | Custom domain for the API | GitHub `production` variable `API_CUSTOM_DOMAIN` | Same rules, but it needs both the CNAME and the `asuid` TXT record first. When set, the web app is built to call it. |
