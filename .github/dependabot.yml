@@ -1,0 +1,46 @@
+# Dependabot opens pull requests to keep dependencies up to date. Each one runs CI like
+# any other PR; review it and merge it if it's green. Security fixes for known
+# vulnerabilities also come from Dependabot (enabled in the repository settings; see
+# the README, "Keeping dependencies up to date and secure").
+#
+# Updates are grouped per ecosystem: one PR a week for all minor and patch updates, and
+# a separate PR for each major update, which may need code changes.
+
+version: 2
+updates:
+  # .NET packages (src/ and tests/).
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      nuget-minor-and-patch:
+        update-types: [minor, patch]
+
+  # The .NET SDK version pinned in global.json.
+  - package-ecosystem: dotnet-sdk
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+
+  # The web app's npm packages.
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+
+  # Actions used by the workflows in .github/workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions-minor-and-patch:
+        update-types: [minor, patch]

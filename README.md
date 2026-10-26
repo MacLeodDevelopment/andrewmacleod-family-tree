@@ -311,8 +311,31 @@ The one-off setup for all of this is in [docs/setup-azure.md](docs/setup-azure.m
 | API's sign-in settings locally | .NET user secrets (`dotnet user-secrets list --project src/FamilyTree.Api`) | Stored in your Windows profile, never in the repo. |
 | Web app's sign-in settings | Build-time `VITE_ENTRA_CLIENT_ID` and `VITE_ENTRA_TENANT_ID`. In Azure they come from the GitHub variables `ENTRA_CLIENT_ID` and `AZURE_TENANT_ID`; locally, from `web/.env.local` (git-ignored; template in `web/.env.example`). | Baked into the published JavaScript, which is fine: neither is a secret. |
 | Who can sign in, and with which role | Azure portal → Entra ID → Enterprise applications → Family Tree → Users and groups | Not in code: these are people. |
-| .NET SDK version and test runner | [`global.json`](global.json) | Pins the exact SDK (10.0.402) that CI installs, and opts in to Microsoft.Testing.Platform (see gotchas). Bump the version by hand when you update the SDK locally. |
+| .NET SDK version and test runner | [`global.json`](global.json) | Pins the exact SDK (10.0.402) that CI installs, and opts in to Microsoft.Testing.Platform (see gotchas). Dependabot proposes SDK updates. |
+| Dependency updates | [`.github/dependabot.yml`](.github/dependabot.yml) | Which ecosystems, how often, how PRs are grouped. |
 | npm package versions | `web/package.json` (exact versions) and `web/package-lock.json` | `web/.npmrc` has `save-exact=true`, so new packages are pinned too. |
+
+### Keeping dependencies up to date and secure
+
+Several layers catch vulnerable or outdated dependencies, each at a different moment:
+
+| What | When | What it does |
+|---|---|---|
+| **NuGet audit** ([`Directory.Build.props`](Directory.Build.props)) | Every .NET restore and build, locally and in CI | Fails the build if any .NET package, including indirect ones, has a known moderate-or-worse vulnerability. |
+| **`npm audit`** (in [`ci.yml`](.github/workflows/ci.yml)) | Every CI run | The same for the web app's npm packages. |
+| **Dependency review** (in `ci.yml`) | Pull requests | Fails the PR if it *adds or upgrades* a dependency with a known vulnerability, so problems are caught in review rather than after merging. |
+| **Dependabot version updates** ([`.github/dependabot.yml`](.github/dependabot.yml)) | Weekly, on Mondays | Opens PRs to update NuGet and npm packages, GitHub Actions, and the .NET SDK in `global.json`. Minor and patch updates are grouped into one PR per ecosystem; each major update gets its own PR, because it may need code changes. |
+| **Dependabot security updates and alerts** | As soon as an advisory is published | Opens a PR to fix a vulnerable dependency without waiting for Monday, and lists alerts under the repository's **Security** tab. |
+| **CodeQL** ([`codeql.yml`](.github/workflows/codeql.yml)) | Every PR, every push to `main`, and weekly | GitHub's code scanning. It analyses the C#, TypeScript and workflow files for security problems (injection, unsafe data flows, risky workflow patterns). Findings appear as PR annotations and under **Security → Code scanning**. It reads the source directly (`build-mode: none`), so it doesn't need to build anything. |
+
+**Handling a Dependabot PR:** CI runs on it like any other. If it's green, review the changes (the PR links each package's release notes) and merge. A grouped PR that fails usually means one package in it needs attention. Comment `@dependabot recreate` to rebuild it, or deal with that package separately.
+
+**One-off GitHub settings.** Version updates and the workflows above work from the files in the repo. Two things are switched on in **Settings → Advanced Security** (labelled *Code security* in older versions of GitHub):
+- **Dependabot alerts**: on.
+- **Dependabot security updates**: on.
+- Leave **CodeQL analysis → Default setup** off. `codeql.yml` is the "advanced setup", and GitHub won't run both.
+
+Optionally, under **Settings → Rules → Rulesets**, require pull requests and passing status checks (*API build and test*, *Web lint, test and build*, *Dependency review*, *Analyse csharp*) before merging to `main`. Then nothing reaches production without passing them, even by accident.
 
 ### Costs
 
@@ -355,7 +378,7 @@ These are mostly lessons learned the hard way.
   - In October 2026, `actions/setup-dotnet` was turning `"rollForward": "latestFeature"` into "install the latest 10.0". That goes through an aka.ms redirect, which pointed at a Microsoft storage account refusing public downloads (`PublicAccessNotPermitted`) while a new release was being published. CI broke without any change on our side.
   - An exact version is downloaded straight from `builds.dotnet.microsoft.com`, so it isn't affected. Avoid `latestFeature`, `latestPatch`, `latestMinor` and `latestMajor`: `setup-dotnet` turns all of those into "latest" lookups.
   - Locally, `patch` uses 10.0.402 if it's installed, otherwise the newest 10.0.4xx patch.
-  - To move to a newer SDK, install it, set `version` to it, and check CI is green.
+  - Dependabot proposes newer SDKs as PRs. After merging one, install that SDK locally too; `patch` won't move you to a new feature band (for example from 10.0.4xx to 10.0.5xx) on its own.
 - **`dotnet test` on .NET 10 needs Microsoft.Testing.Platform.** .NET 10's `dotnet test` dropped the old VSTest mode for test frameworks like xUnit v3. [`global.json`](global.json) opts in to the new runner. The test project must also be an executable (`<OutputType>Exe</OutputType>`), which xUnit v3 requires.
 - **Front-end tests that wait for async UI should use `waitFor`, not `findBy…` followed by a text assertion.** The status element exists immediately ("Checking the API…"), so `findByRole('status')` returns before the fetch completes. One test passed locally and failed on CI's slower runners until it was fixed.
 - **A workflow step fails with only "exit code 1" and no message of its own.** GitHub runs `run:` steps with `bash -e`, which ends the script at the first command that returns non-zero, even one whose failure looks harmless.
@@ -407,5 +430,6 @@ Relatives should not be invited until the privacy rule is deployed.
 
 - `.github/workflows/ci.yml` builds, lints and tests the API and the web app on every pull request.
 - `.github/workflows/deploy.yml` runs on every push to `main`: it runs the same tests, then deploys the infrastructure, the API and the web app to Azure, with a smoke test after each. See [How it works](#how-it-works).
+- `.github/workflows/codeql.yml` scans the code for security problems on PRs, on pushes to `main` and weekly, and `.github/dependabot.yml` keeps dependencies up to date. See [Keeping dependencies up to date and secure](#keeping-dependencies-up-to-date-and-secure).
 
 Before the first deployment, follow the one-off [Azure setup](docs/setup-azure.md).
