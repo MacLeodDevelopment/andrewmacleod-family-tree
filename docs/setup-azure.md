@@ -12,7 +12,8 @@ GitHub signs in to Azure with **OpenID Connect** (a federated credential). There
 | Container App (consumption, scales to zero) | Runs the API | Free at this usage |
 | Container Apps environment + Log Analytics | Hosting and logs for the API | Pennies (first 5 GB of logs a month free) |
 | Container Registry (Basic) | Stores API images | About £4 a month |
-| User-assigned managed identity | Lets the API pull its image without a password | Free |
+| User-assigned managed identity | Lets the API pull its image and reach the database without a password | Free |
+| Azure SQL Database (serverless, free offer) | The family tree's data | Free (100,000 vCore-seconds and 32 GB a month; pauses rather than charging if exceeded) |
 
 ## Prerequisites
 
@@ -41,10 +42,12 @@ TENANT_ID=$(az account show --query tenantId -o tsv)
 New subscriptions don't always have these enabled.
 
 ```sh
-for provider in Microsoft.App Microsoft.ContainerRegistry Microsoft.OperationalInsights Microsoft.ManagedIdentity Microsoft.Web; do
+for provider in Microsoft.App Microsoft.ContainerRegistry Microsoft.OperationalInsights Microsoft.ManagedIdentity Microsoft.Web Microsoft.Sql; do
   az provider register --namespace "$provider"
 done
 ```
+
+Registration takes a few minutes. Check with `az provider show --namespace Microsoft.Sql --query registrationState -o tsv`, which should say `Registered`. (`Microsoft.Sql` was added for the database in iteration 5a. If you set up before then, run this for it alone.)
 
 ## 3. Create the resource group
 

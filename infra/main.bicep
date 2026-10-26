@@ -28,8 +28,13 @@ param apiCustomDomain string = ''
 @description('Whether the API custom domain\'s managed certificate has already been issued. The deploy workflow looks this up. Azure only issues a certificate for a hostname that is already on the app, so the first deployment adds the hostname unbound and requests the certificate; a second deployment, with this set to true, binds it.')
 param apiCustomDomainCertificateExists bool = false
 
+@description('Name of the managed identity GitHub deploys as (created by hand in docs/setup-azure.md). It becomes the SQL server\'s administrator, so the pipeline can apply database migrations.')
+param deployIdentityName string = '${namePrefix}-github-deploy'
+
 // Built-in role: AcrPull.
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+
+var databaseName = 'familytree'
 
 resource logs 'Microsoft.OperationalInsights/workspaces@2025-02-01' = {
   name: '${namePrefix}-logs'
@@ -84,6 +89,73 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2025-01-01'
     }
   }
 }
+
+// ---------------------------------------------------------------------------------
+// Database: Azure SQL, Microsoft Entra authentication only (no SQL logins or
+// passwords exist). The deploy identity is the administrator, and applies migrations;
+// the API's identity is given read/write access to data by the pipeline.
+// ---------------------------------------------------------------------------------
+
+resource deployIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' existing = {
+  name: deployIdentityName
+}
+
+resource sqlServer 'Microsoft.Sql/servers@2023-08-01' = {
+  // Server names are global.
+  name: '${namePrefix}-sql-${uniqueString(resourceGroup().id)}'
+  location: location
+  properties: {
+    minimalTlsVersion: '1.2'
+    publicNetworkAccess: 'Enabled'
+    administrators: {
+      administratorType: 'ActiveDirectory'
+      azureADOnlyAuthentication: true
+      principalType: 'Application'
+      login: deployIdentity.name
+      sid: deployIdentity.properties.principalId
+      tenantId: tenant().tenantId
+    }
+  }
+}
+
+// Lets Azure services, including the API, reach the server. The firewall is only the
+// first gate: every connection still needs a valid Entra token for a database user.
+// (The pipeline also opens it briefly to the GitHub runner while it migrates.)
+resource sqlAllowAzureServices 'Microsoft.Sql/servers/firewallRules@2023-08-01' = {
+  parent: sqlServer
+  name: 'AllowAllWindowsAzureIps'
+  properties: {
+    startIpAddress: '0.0.0.0'
+    endIpAddress: '0.0.0.0'
+  }
+}
+
+// Serverless, on Azure SQL's free offer: 100,000 vCore-seconds and 32 GB a month at no
+// cost. It pauses after an hour without use, and the first connection afterwards waits
+// while it resumes (the API retries). If the monthly allowance runs out it pauses until
+// the next month rather than charging.
+resource database 'Microsoft.Sql/servers/databases@2023-08-01' = {
+  parent: sqlServer
+  name: databaseName
+  location: location
+  sku: {
+    name: 'GP_S_Gen5_2'
+    tier: 'GeneralPurpose'
+    family: 'Gen5'
+    capacity: 2
+  }
+  properties: {
+    useFreeLimit: true
+    freeLimitExhaustionBehavior: 'AutoPause'
+    autoPauseDelay: 60
+    minCapacity: json('0.5')
+    maxSizeBytes: 34359738368
+    zoneRedundant: false
+    requestedBackupStorageRedundancy: 'Local'
+  }
+}
+
+var sqlServerHost = sqlServer.properties.fullyQualifiedDomainName
 
 resource web 'Microsoft.Web/staticSites@2024-04-01' = {
   name: '${namePrefix}-web'
@@ -182,6 +254,12 @@ resource api 'Microsoft.App/containerApps@2025-01-01' = {
                 name: 'AzureAd__ClientId'
                 value: entraClientId
               }
+              // The database, as the API's managed identity: no password. Generous connect
+              // timeout, because the serverless database may be resuming from a pause.
+              {
+                name: 'ConnectionStrings__FamilyTree'
+                value: 'Server=tcp:${sqlServerHost},1433;Database=${databaseName};Authentication=Active Directory Managed Identity;User Id=${apiIdentity.properties.clientId};Encrypt=True;Connect Timeout=60'
+              }
               {
                 name: 'Cors__AllowedOrigins__0'
                 value: 'https://${web.properties.defaultHostname}'
@@ -201,6 +279,7 @@ resource api 'Microsoft.App/containerApps@2025-01-01' = {
   }
   dependsOn: [
     apiIdentityCanPull
+    database
   ]
 }
 
@@ -228,3 +307,9 @@ output apiUrl string = !empty(apiCustomDomain) && apiCustomDomainCertificateExis
 output webName string = web.name
 output webUrl string = 'https://${web.properties.defaultHostname}'
 output webCustomUrl string = empty(webCustomDomain) ? '' : 'https://${webCustomDomain}'
+// For the pipeline's database step: where to migrate, and who to grant access to.
+output sqlServerName string = sqlServer.name
+output sqlServerHost string = sqlServerHost
+output databaseName string = databaseName
+output apiIdentityName string = apiIdentity.name
+output apiIdentityClientId string = apiIdentity.properties.clientId

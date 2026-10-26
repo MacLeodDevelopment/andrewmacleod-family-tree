@@ -10,6 +10,10 @@ namespace FamilyTree.Api.Tests;
 /// <see cref="TestUsers.CreateClientFor"/>. Every client from the same factory talks
 /// to the same API instance (so, for example, they share its rate limiter).
 /// </summary>
+/// <remarks>
+/// The database connection string points nowhere, so tests that don't need a database
+/// stay fast. Tests that do use <see cref="SqlServerContainer"/>.
+/// </remarks>
 public class ApiFactory : WebApplicationFactory<Program>
 {
     /// <summary>
@@ -18,11 +22,15 @@ public class ApiFactory : WebApplicationFactory<Program>
     /// </summary>
     public const string TestEnvironment = "Testing";
 
+    /// <summary>Nothing listens on port 1, so connecting fails straight away.</summary>
+    public const string UnreachableDatabase = "Server=127.0.0.1,1;Database=familytree;User Id=nobody;Password=unused;Connect Timeout=2;Encrypt=False";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(TestEnvironment);
         builder.UseSetting("AzureAd:TenantId", "00000000-0000-0000-0000-00000000000a");
         builder.UseSetting("AzureAd:ClientId", "00000000-0000-0000-0000-00000000000b");
+        builder.UseSetting("ConnectionStrings:FamilyTree", UnreachableDatabase);
         builder.ConfigureTestServices(services => services.AddTestSignIn());
     }
 }
