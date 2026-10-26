@@ -39,6 +39,14 @@ npm run dev
 
 The Vite dev server proxies API paths such as `/health` to the local API. The home page shows whether the API is healthy.
 
+The dev server doesn't send the [security headers](#security-headers-on-the-web-app). To try the production build *with* them, including signing in under the Content Security Policy, stop `npm run dev` and run:
+
+```sh
+cd web
+npm run build
+npm run preview    # http://localhost:5173, same port, so sign-in still works
+```
+
 To run the API as a container instead (needs Docker), build the image and run it on port 8080:
 
 ```sh
@@ -122,6 +130,34 @@ Locally, none of this is needed. The Vite dev server proxies `/health` (and late
 
 Vite replaces `import.meta.env.VITE_*` references with literal values **at build time**. The deploy workflow builds the front end with `VITE_API_BASE_URL` set to the API's address (taken from the Bicep deployment's outputs), so the address is baked into the published JavaScript. Locally it's unset, and [`apiUrl.ts`](web/src/shared/api/apiUrl.ts) falls back to the page's own origin, which is where the Vite proxy picks calls up.
 
+### Security headers on the web app
+
+Static Web Apps sends HTTP response headers that tell the browser what the page may and may not do. They're defined in [`web/build/staticWebApp.ts`](web/build/staticWebApp.ts).
+
+**How they reach Azure.** A small plugin in [`vite.config.ts`](web/vite.config.ts) writes them into `dist/staticwebapp.config.json` during `npm run build`. Static Web Apps reads that file from the uploaded site.
+- They're generated rather than hand-written because the Content Security Policy must name the API's address, and that's only known at build time: it's the custom domain, or the generated address if there isn't one.
+- The same file sets a **navigation fallback**: any path that isn't a real file, such as `/people/123`, serves the app instead of a 404. The app decides what each path shows.
+
+**What they do:**
+- **Content Security Policy (CSP).** The main one. The browser refuses anything the policy doesn't list. So if an attacker ever got script onto the page (cross-site scripting), it couldn't run inline, load code from elsewhere, or send data anywhere except our own API and Microsoft sign-in.
+  - `script-src 'self'`: scripts only from this site, never inline. Vite's production build has no inline scripts or styles, so nothing needs loosening.
+  - `connect-src 'self' <API origin> https://login.microsoftonline.com`: the only places the page may make requests to. MSAL talks to Microsoft for tokens; the app talks to the API.
+  - `frame-src https://login.microsoftonline.com`: MSAL can renew tokens in a hidden iframe on Microsoft's sign-in page.
+  - `frame-ancestors 'none'`: no other site may show this one inside a frame (click-jacking).
+  - `object-src 'none'`, `base-uri 'self'` and `form-action 'self'` close the less obvious holes.
+- **`Strict-Transport-Security`**: browsers use HTTPS for this site for a year, even if someone types `http://`.
+- **`X-Content-Type-Options: nosniff`**: files are only treated as the type the server says, never guessed.
+- **`Referrer-Policy: strict-origin-when-cross-origin`**: other sites can see that a visitor came from here, but not which page (paths could one day contain people's IDs).
+- **`Permissions-Policy`** turns off camera, microphone, location, payments and USB, which the app never needs.
+- **`Cross-Origin-Opener-Policy: same-origin`**: windows from other sites can't get a handle on this one.
+- **`X-Robots-Tag: noindex, nofollow`**: asks search engines not to list this private site.
+
+**Trying them locally.** The Vite dev server (`npm run dev`) doesn't send them, because its hot reloading relies on inline scripts that the policy forbids. `npm run build` then `npm run preview` serves the production build on port 5173 with the *exact* headers from `dist/staticwebapp.config.json`, so you can sign in and click around under the real policy. If the browser blocks something, its console shows a "Refused to …" message naming the rule.
+
+**If something is blocked in production** (for example, after adding a map library that loads tiles from another domain), add that origin to the relevant directive in `staticWebApp.ts`. Never add `'unsafe-inline'` to `script-src`, because that would undo most of the protection.
+
+The deploy checks the headers are really being served (see below), and [`staticWebApp.test.ts`](web/build/staticWebApp.test.ts) pins the important rules.
+
 ### Sign-in and access control
 
 Only invited family members can use the app. Sign-in is handled by **Microsoft Entra ID**, Microsoft's identity service, using the tenant that came with the Azure subscription. The API never sees a password: it only checks tokens that Entra has signed.
@@ -183,7 +219,10 @@ Pull requests run [`ci.yml`](.github/workflows/ci.yml): it builds, lints and tes
      - `/health` responds, retrying to allow for a cold start.
      - `/api/v1/me` refuses an anonymous request with 401, which proves sign-in is enforced.
      - If a custom domain is set, the API returns the right CORS header for it.
-4. **Web app**: builds the front end with the API's address baked in, uploads `web/dist` to the Static Web App, then checks the page loads and has the expected title.
+4. **Web app**: builds the front end with the API's address baked in (which also generates `staticwebapp.config.json`), and uploads `web/dist` to the Static Web App. Smoke tests then check:
+   - The page loads and has the expected title.
+   - The security headers are being served: the CSP forbids framing and allows exactly this build's API origin, plus `nosniff` and `noindex`.
+   - A deep link (`/people/123`) serves the app.
 
 The run's summary page lists the addresses it deployed to. Deploys are queued rather than run in parallel (`concurrency: deploy-production`), so two quick merges can't overlap.
 
@@ -230,6 +269,7 @@ The one-off setup for all of this is in [docs/setup-azure.md](docs/setup-azure.m
 | Custom domain for the API | GitHub `production` variable `API_CUSTOM_DOMAIN` | Same rules, but it needs both the CNAME and the `asuid` TXT record first. When set, the web app is built to call it. |
 | API's allowed browser origins | Container App environment variables, set by Bicep | Derived from the Static Web App's address and the custom domain. Don't edit them in the portal: the next deploy overwrites them. |
 | API address used by the front end | Baked into the front-end build | From Bicep's outputs during the deploy; unset locally. |
+| Web app's security headers and navigation fallback | [`web/build/staticWebApp.ts`](web/build/staticWebApp.ts), written to `dist/staticwebapp.config.json` at build time | The CSP's API origin comes from `VITE_API_BASE_URL`. Edit the `.ts` file, never the generated JSON. |
 | Sign-in app registration, roles, redirect URIs | [`infra/entra.bicep`](infra/entra.bicep), deployed by hand | Redeploy when the web app's addresses change. See [docs/setup-entra.md](docs/setup-entra.md). |
 | API's sign-in settings in Azure | Container App environment variables `AzureAd__TenantId` and `AzureAd__ClientId`, set by Bicep | The client ID comes from the GitHub `production` variable `ENTRA_CLIENT_ID`; the tenant is the subscription's own. |
 | API's sign-in settings locally | .NET user secrets (`dotnet user-secrets list --project src/FamilyTree.Api`) | Stored in your Windows profile, never in the repo. |
@@ -287,6 +327,7 @@ These are mostly lessons learned the hard way.
   - Feed `read` from a here-string (`<<< "$var"`), which supplies the newline.
   - Test step scripts locally with `bash -e script.sh`, not plain `bash`.
   - Output from `az` on Windows ends lines with `\r\n`, so scripts that parse it should strip `\r` too.
+  - In Git Bash on Windows, `grep --ignore-case --fixed-strings` crashes ("Aborted"). For simple "does this text contain that" checks in workflow scripts, use bash's own `[[ "$text" == *"$part"* ]]` (with `shopt -s nocasematch` to ignore case). It needs no external tool and behaves the same everywhere.
 - **Vulnerable packages fail the build.** [`Directory.Build.props`](Directory.Build.props) turns NuGet's audit warnings for moderate, high and critical vulnerabilities into errors. Every restore checks direct and *transitive* packages against GitHub's advisory database.
   - So a newly published advisory can suddenly break an unchanged build. That's intended: fix it, don't suppress it.
   - Find the culprit with `dotnet list package --vulnerable --include-transitive`, and why it's there with `dotnet nuget why <project> <package>`. Usually the fix is to pin the patched version with a direct `PackageReference` and a comment saying when to remove it.
