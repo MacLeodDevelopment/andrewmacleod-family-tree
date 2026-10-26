@@ -39,6 +39,20 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - run: npm ci
+      # Like NuGet's audit for the API: fail on known moderate-or-worse vulnerabilities.
+      - run: npm audit --audit-level=moderate
       - run: npm run lint
       - run: npm test
       - run: npm run build
+
+  # On pull requests only: fail if the PR adds or upgrades a dependency (NuGet, npm or
+  # GitHub Actions) that has a known moderate-or-worse vulnerability.
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: moderate
