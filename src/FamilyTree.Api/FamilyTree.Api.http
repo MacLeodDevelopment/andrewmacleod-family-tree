@@ -53,6 +53,32 @@ Content-Type: application/json
 
 { "type": "Birth", "date": "abt 1870", "place": "Innellan, Argyll" }
 
+### Change a person: replace the ID. This replaces their sex and all their names, so send everything to keep.
+PUT {{api}}/api/v1/admin/people/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "sex": "Female",
+  "names": [
+    { "givenName": "Morag", "surname": "MacLeod", "type": "Birth" }
+  ]
+}
+
+### Change when and where an event happened: person ID, then event ID. Its type stays the same.
+PUT {{api}}/api/v1/admin/people/00000000-0000-0000-0000-000000000000/events/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "date": "bef 1871",
+  "place": "Innellan, Argyll"
+}
+
+### Remove an event: person ID, then event ID.
+DELETE {{api}}/api/v1/admin/people/00000000-0000-0000-0000-000000000000/events/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{token}}
+
 ### Record a family: replace the IDs. Leave out partner2Id if the other parent is unknown.
 POST {{api}}/api/v1/admin/families
 Authorization: Bearer {{token}}

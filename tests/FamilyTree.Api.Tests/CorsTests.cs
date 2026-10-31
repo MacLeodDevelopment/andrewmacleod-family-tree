@@ -53,6 +53,19 @@ public class CorsTests(ApiFactory factory) : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task The_family_tree_web_app_can_save_changes_through_the_api()
+    {
+        var preflight = new HttpRequestMessage(HttpMethod.Options, "/api/v1/admin/people/00000000-0000-0000-0000-000000000000");
+        preflight.Headers.Add("Origin", SpaOrigin);
+        preflight.Headers.Add("Access-Control-Request-Method", "PUT");
+        preflight.Headers.Add("Access-Control-Request-Headers", "authorization,content-type");
+
+        var response = await CreateClient().SendAsync(preflight, TestContext.Current.CancellationToken);
+
+        Assert.Contains("PUT", response.Headers.GetValues("Access-Control-Allow-Methods").Single());
+    }
+
+    [Fact]
     public async Task The_family_tree_web_app_can_delete_through_the_api()
     {
         var preflight = new HttpRequestMessage(HttpMethod.Options, "/api/v1/admin/people/00000000-0000-0000-0000-000000000000");

@@ -12,11 +12,13 @@ public static class PeopleEndpoints
 
     public sealed record NameRequest(string? GivenName, string? Surname, NameType Type = NameType.Birth);
 
-    public sealed record CreatePersonRequest(IReadOnlyList<NameRequest>? Names, Sex Sex = Sex.Unknown);
+    public sealed record PersonRequest(IReadOnlyList<NameRequest>? Names, Sex Sex = Sex.Unknown);
 
     public sealed record NameResponse(string GivenName, string? Surname, NameType Type);
 
     public sealed record AddEventRequest(EventType Type, string? Date, string? Place);
+
+    public sealed record ChangeEventRequest(string? Date, string? Place);
 
     public sealed record EventResponse(Guid Id, EventType Type, string? Date, string? DateAsEntered, string? Place);
 
@@ -25,7 +27,7 @@ public static class PeopleEndpoints
     public sealed record PeoplePage(IReadOnlyList<PersonResponse> Items, int Total);
 
     /// <summary>
-    /// /admin/people: creating and reading people. For admins only, because viewers will
+    /// /admin/people: creating, reading and changing people. For admins only, because viewers will
     /// see people through endpoints that apply the privacy rules.
     /// </summary>
     public static RouteGroupBuilder MapPeopleEndpoints(this RouteGroupBuilder group)
@@ -35,17 +37,19 @@ public static class PeopleEndpoints
         people.MapPost("/", CreateAsync);
         people.MapGet("/{id:guid}", GetAsync).WithName(nameof(GetAsync));
         people.MapGet("/", ListAsync);
+        people.MapPut("/{id:guid}", UpdateAsync);
         people.MapDelete("/{id:guid}", DeleteAsync);
         people.MapPost("/{id:guid}/events", AddEventAsync);
+        people.MapPut("/{id:guid}/events/{eventId:guid}", ChangeEventAsync);
+        people.MapDelete("/{id:guid}/events/{eventId:guid}", RemoveEventAsync);
 
         return group;
     }
 
     private static async Task<IResult> CreateAsync(
-        CreatePersonRequest request, FamilyTreeDbContext database, CancellationToken cancellationToken, bool allowDuplicate = false)
+        PersonRequest request, FamilyTreeDbContext database, CancellationToken cancellationToken, bool allowDuplicate = false)
     {
-        var names = (request.Names ?? []).Select(name => new NameDetails(name.GivenName, name.Surname, name.Type)).ToList();
-        var result = Person.Create(request.Sex, names);
+        var result = Person.Create(request.Sex, ToNameDetails(request));
         if (!result.IsSuccess)
         {
             return Results.ValidationProblem(result.Errors.ToDictionary());
@@ -64,6 +68,30 @@ public static class PeopleEndpoints
         await database.SaveChangesAsync(cancellationToken);
 
         return Results.CreatedAtRoute(nameof(GetAsync), new { id = result.Value.Id }, ToResponse(result.Value));
+    }
+
+    /// <summary>
+    /// Replaces a person's sex and names. There's no duplicate check: this person already
+    /// exists, and correcting them shouldn't be interrupted by a prompt about someone else.
+    /// </summary>
+    private static async Task<IResult> UpdateAsync(
+        Guid id, PersonRequest request, FamilyTreeDbContext database, CancellationToken cancellationToken)
+    {
+        var person = await database.People.SingleOrDefaultAsync(p => p.Id == id, cancellationToken);
+        if (person is null)
+        {
+            return Results.NotFound();
+        }
+
+        var result = person.Update(request.Sex, ToNameDetails(request));
+        if (!result.IsSuccess)
+        {
+            return Results.ValidationProblem(result.Errors.ToDictionary());
+        }
+
+        await database.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(ToResponse(person));
     }
 
     /// <summary>
@@ -150,6 +178,44 @@ public static class PeopleEndpoints
 
         return Results.CreatedAtRoute(nameof(GetAsync), new { id }, ToResponse(person));
     }
+
+    private static async Task<IResult> ChangeEventAsync(
+        Guid id, Guid eventId, ChangeEventRequest request, FamilyTreeDbContext database, CancellationToken cancellationToken)
+    {
+        var person = await database.People.SingleOrDefaultAsync(p => p.Id == id, cancellationToken);
+        if (person is null || person.Events.All(lifeEvent => lifeEvent.Id != eventId))
+        {
+            return Results.NotFound();
+        }
+
+        var result = person.ChangeEvent(eventId, request.Date, request.Place);
+        if (!result.IsSuccess)
+        {
+            return Results.ValidationProblem(result.Errors.ToDictionary());
+        }
+
+        await database.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(ToResponse(person));
+    }
+
+    private static async Task<IResult> RemoveEventAsync(
+        Guid id, Guid eventId, FamilyTreeDbContext database, CancellationToken cancellationToken)
+    {
+        var person = await database.People.SingleOrDefaultAsync(p => p.Id == id, cancellationToken);
+        if (person is null || person.Events.All(lifeEvent => lifeEvent.Id != eventId))
+        {
+            return Results.NotFound();
+        }
+
+        person.RemoveEvent(eventId);
+        await database.SaveChangesAsync(cancellationToken);
+
+        return Results.NoContent();
+    }
+
+    private static List<NameDetails> ToNameDetails(PersonRequest request) =>
+        (request.Names ?? []).Select(name => new NameDetails(name.GivenName, name.Surname, name.Type)).ToList();
 
     private static PersonResponse ToResponse(Person person) => new(
         person.Id,

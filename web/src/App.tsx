@@ -1,6 +1,7 @@
 import { Link, Route, Routes } from 'react-router'
 import { Account } from './features/account/Account.tsx'
 import { AddPersonPage } from './features/people/AddPersonPage.tsx'
+import { EditPersonPage } from './features/people/EditPersonPage.tsx'
 import { PeopleListPage } from './features/people/PeopleListPage.tsx'
 import { PersonPage } from './features/people/PersonPage.tsx'
 import { RequireAdmin } from './features/people/RequireAdmin.tsx'
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="/people" element={<RequireAdmin><PeopleListPage /></RequireAdmin>} />
           <Route path="/people/new" element={<RequireAdmin><AddPersonPage /></RequireAdmin>} />
           <Route path="/people/:id" element={<RequireAdmin><PersonPage /></RequireAdmin>} />
+          <Route path="/people/:id/edit" element={<RequireAdmin><EditPersonPage /></RequireAdmin>} />
           <Route path="*" element={<p role="alert">This page doesn't exist.</p>} />
         </Routes>
       </main>
