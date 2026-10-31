@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query'
+import type { Problem } from '../../shared/api/client.ts'
 
 export const nameTypes = ['Birth', 'Married', 'Alias', 'Nickname'] as const
 export const sexes = ['Unknown', 'Female', 'Male'] as const
@@ -45,6 +46,11 @@ export const peopleUrl = '/api/v1/admin/people'
 export async function refreshPerson(queryClient: QueryClient, id: string) {
   await queryClient.invalidateQueries({ queryKey: ['person', id] })
   await queryClient.invalidateQueries({ queryKey: ['people'] })
+}
+
+/** Who the API says someone may be, when it stops them being added. */
+export function duplicateMatches(problem: Problem | undefined): Person[] {
+  return (problem?.matches ?? []) as Person[]
 }
 
 /** The person's main name, which is the first in their list. */

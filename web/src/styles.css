@@ -572,6 +572,10 @@ h3 {
   margin: 0.5rem 0 0.75rem 1.25rem;
 }
 
+.notice ul button {
+  margin-bottom: 0.25rem;
+}
+
 .danger-zone {
   margin-top: 2.5rem;
 }

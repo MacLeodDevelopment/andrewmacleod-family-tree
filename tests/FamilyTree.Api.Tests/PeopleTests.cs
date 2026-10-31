@@ -28,6 +28,8 @@ public class PeopleTests(ApiFactory factory, SqlServerContainer sqlServer) : ICl
 
     private sealed record Page(PersonResponse[] Items, int Total);
 
+    private sealed record DuplicateProblem(PersonResponse[] Matches);
+
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
     /// <summary>The API, connected to the real test database.</summary>
@@ -226,7 +228,9 @@ public class PeopleTests(ApiFactory factory, SqlServerContainer sqlServer) : ICl
 
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
         Assert.Equal(ProblemJson, second.Content.Headers.ContentType?.MediaType);
-        Assert.Contains(existing!.Id.ToString(), await second.Content.ReadAsStringAsync(Cancellation));
+        var match = Assert.Single((await second.Content.ReadFromJsonAsync<DuplicateProblem>(Cancellation))!.Matches);
+        Assert.Equal(existing, match with { Names = existing!.Names, Events = existing.Events });
+        Assert.Equal(existing.Names, match.Names);
     }
 
     [Fact]

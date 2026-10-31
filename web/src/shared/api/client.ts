@@ -9,7 +9,7 @@ export interface Problem {
   /** Validation messages by field, such as `names[0].givenName`. */
   errors?: Record<string, string[]>
   /** People who may already be this person, when adding someone is stopped. */
-  duplicates?: string[]
+  matches?: unknown[]
 }
 
 /** The API refused or failed a request; `status` is the HTTP status code. */
