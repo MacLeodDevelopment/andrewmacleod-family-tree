@@ -39,14 +39,23 @@ public static partial class DatabaseDeployment
             throw new ArgumentException($"'{identityName}' isn't a valid identity name.", nameof(identityName));
         }
 
+        // EXEC (...) only accepts strings and variables, not function calls, so each
+        // statement is built in a variable first.
         const string sql = """
+            DECLARE @user nvarchar(258) = QUOTENAME(@name);
+            DECLARE @statement nvarchar(max);
+
             IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = @name)
             BEGIN
                 DECLARE @sid nvarchar(100) = CONVERT(nvarchar(100), CONVERT(varbinary(16), @clientId), 1);
-                EXEC (N'CREATE USER ' + QUOTENAME(@name) + N' WITH SID = ' + @sid + N', TYPE = E');
+                SET @statement = N'CREATE USER ' + @user + N' WITH SID = ' + @sid + N', TYPE = E';
+                EXEC (@statement);
             END;
-            EXEC (N'ALTER ROLE db_datareader ADD MEMBER ' + QUOTENAME(@name));
-            EXEC (N'ALTER ROLE db_datawriter ADD MEMBER ' + QUOTENAME(@name));
+
+            SET @statement = N'ALTER ROLE db_datareader ADD MEMBER ' + @user;
+            EXEC (@statement);
+            SET @statement = N'ALTER ROLE db_datawriter ADD MEMBER ' + @user;
+            EXEC (@statement);
             """;
 
         await using var database = new FamilyTreeDbContext(SqlServerOptions.ForFamilyTree(connectionString));
