@@ -348,6 +348,25 @@ Everyone with a family role, not only admins, can search and read profiles: `/se
 - **Half-siblings are worked out, not stored.** Children in the person's own families are brothers and sisters. Children in a parent's *other* families are half-siblings. Step-siblings aren't listed.
 - **At most 20 results**, ordered by name, with the total so the page can say there are more. "Ordered" applies to those 20 only: which 20 is arbitrary, so type more of the name if someone's missing.
 
+### The tree around someone
+
+`GET /api/v1/people/{id}/graph?up=3&down=2` returns the part of the tree around a person, for family members. `up` and `down` count generations and are kept between 0 and 6. No screen uses it yet: it's what the tree view will draw.
+
+```json
+{
+  "focusId": "…",
+  "people": [{ "id": "…", "name": "Morag MacLeod", "born": "c. 1870", "died": null, "isHalfSibling": false }],
+  "families": [{ "id": "…", "partner1Id": "…", "partner2Id": null, "type": "Marriage",
+                 "children": [{ "childId": "…", "partner1Relationship": "Biological", "partner2Relationship": "Step" }] }]
+}
+```
+
+- **It's plain data, not drawing instructions.** The API says who is related to whom, and the client decides where to put them. So the tree library can change without touching the API.
+- **It's worked out in memory** ([`FamilyGraph.Around`](src/FamilyTree.Domain/Family.cs)). Every family is loaded and walked in plain C#, which is fine for thousands of people and needs no recursive SQL.
+- **Unknown parents stay visible:** a family with a null partner means "unknown", and the view can draw a card for it.
+- **What's included:** each ancestor's and descendant's whole family, so aunts, uncles and their brothers and sisters appear, but not their partners or children. With at least one generation up, it also includes the parents' other families, and those children are flagged `isHalfSibling`.
+- **Privacy applies as usual.** `born` and `died` go through the same check as profiles. Families have no events here, so marriage dates can't leak.
+
 ### Privacy of living people
 
 Relatives can see that a living person exists, what they're called and how they're related, but not when or where anything happened to them. Admins see everything.

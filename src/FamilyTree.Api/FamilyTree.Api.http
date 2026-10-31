@@ -66,6 +66,10 @@ Authorization: Bearer {{token}}
 GET {{api}}/api/v1/people/00000000-0000-0000-0000-000000000000
 Authorization: Bearer {{token}}
 
+### The tree around someone: replace the ID. Defaults to 3 generations up and 2 down, at most 6 each way.
+GET {{api}}/api/v1/people/00000000-0000-0000-0000-000000000000/graph?up=3&down=2
+Authorization: Bearer {{token}}
+
 ### Find people by name: every word must match part of a given name or surname
 GET {{api}}/api/v1/admin/people?search=morag macleod
 Authorization: Bearer {{token}}

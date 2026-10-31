@@ -12,6 +12,9 @@ namespace FamilyTree.Api.Profiles;
 public static class ProfilesEndpoints
 {
     public const int MaxSearchResults = 20;
+    public const int DefaultGenerationsUp = 3;
+    public const int DefaultGenerationsDown = 2;
+    public const int MaxGenerations = 6;
 
     /// <summary>Enough to recognise someone and tell them from others with the same name.</summary>
     public sealed record PersonSummary(Guid Id, string Name, string? Born, string? Died);
@@ -45,6 +48,19 @@ public static class ProfilesEndpoints
         IReadOnlyList<ProfileSibling> Siblings,
         IReadOnlyList<ProfilePartnership> Partnerships);
 
+    /// <summary>A person in a graph. Born and Died follow the same privacy rule as everywhere else.</summary>
+    public sealed record GraphPerson(Guid Id, string Name, string? Born, string? Died, bool IsHalfSibling);
+
+    public sealed record GraphChild(Guid ChildId, ParentRelationship Partner1Relationship, ParentRelationship Partner2Relationship);
+
+    public sealed record GraphFamily(Guid Id, Guid? Partner1Id, Guid? Partner2Id, PartnershipType Type, IReadOnlyList<GraphChild> Children);
+
+    /// <summary>
+    /// The tree around someone, as plain data. It says who is related to whom and leaves
+    /// where to draw them to the client. It has no events, so no marriage dates to protect.
+    /// </summary>
+    public sealed record Graph(Guid FocusId, IReadOnlyList<GraphPerson> People, IReadOnlyList<GraphFamily> Families);
+
     /// <summary>
     /// /people: finding and reading people, for every family member. These have their own
     /// response types, so what relatives can see is decided here and nowhere else, and
@@ -57,6 +73,7 @@ public static class ProfilesEndpoints
 
         people.MapGet("/search", SearchAsync);
         people.MapGet("/{id:guid}", GetAsync);
+        people.MapGet("/{id:guid}/graph", GraphAsync);
 
         return group;
     }
@@ -148,6 +165,49 @@ public static class ProfilesEndpoints
                 .Concat(halfSiblings.Select(sibling => new ProfileSibling(summaries[sibling], IsHalf: true)))
                 .ToList(),
             asPartner.Select(f => ToPartnership(f, id, summaries, privacy.ShowsEventsOf(f, relatives))).ToList()));
+    }
+
+    private static async Task<IResult> GraphAsync(
+        Guid id,
+        ClaimsPrincipal user,
+        IAuthorizationService authorization,
+        FamilyTreeDbContext database,
+        CancellationToken cancellationToken,
+        int up = DefaultGenerationsUp,
+        int down = DefaultGenerationsDown)
+    {
+        if (!await database.People.AnyAsync(person => person.Id == id, cancellationToken))
+        {
+            return Results.NotFound();
+        }
+
+        var privacy = await Privacy.ForAsync(user, authorization, database, cancellationToken);
+        var tree = new FamilyGraph(await database.Families.AsNoTracking().ToListAsync(cancellationToken));
+        var around = tree.Around(id, Math.Clamp(up, 0, MaxGenerations), Math.Clamp(down, 0, MaxGenerations));
+
+        var everyone = around.Families
+            .SelectMany(f => f.Partners.Concat(f.Children.Select(child => child.ChildId)))
+            .Append(id)
+            .Distinct().ToList();
+        var people = await database.People.AsNoTracking()
+            .Where(person => everyone.Contains(person.Id))
+            .ToListAsync(cancellationToken);
+
+        return Results.Ok(new Graph(
+            id,
+            people.Select(person => ToSummary(person, privacy))
+                .Select(p => new GraphPerson(p.Id, p.Name, p.Born, p.Died, around.HalfSiblings.Contains(p.Id)))
+                .ToList(),
+            around.Families
+                .Select(f => new GraphFamily(
+                    f.Id,
+                    f.Partner1Id,
+                    f.Partner2Id,
+                    f.Type,
+                    f.Children.OrderBy(child => child.Position)
+                        .Select(child => new GraphChild(child.ChildId, child.Partner1Relationship, child.Partner2Relationship))
+                        .ToList()))
+                .ToList()));
     }
 
     private static IEnumerable<ProfileParent> ParentsIn(Family family, Guid childId, Dictionary<Guid, PersonSummary> summaries)
