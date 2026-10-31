@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { ApiError, fetchMe, type Me } from '../../shared/api/me.ts'
+import { ApiError } from '../../shared/api/client.ts'
+import { useMe, type Me } from '../../shared/api/me.ts'
 import type { SignedInUser } from '../../shared/auth/auth.ts'
 import { useAuth } from '../../shared/auth/authContext.ts'
 
@@ -63,23 +64,15 @@ export const checkingIndicatorDelayMs = 500
 
 function SignedIn({ user }: { user: SignedInUser }) {
   const auth = useAuth()
-  const [state, setState] = useState<MeState>({ kind: 'loading' })
+  const me = useMe()
   const checkingIsSlow = useHasElapsed(checkingIndicatorDelayMs)
-
-  useEffect(() => {
-    let active = true
-    auth
-      .getAccessToken()
-      .then(fetchMe)
-      .then(
-        (me) => active && setState({ kind: 'loaded', me }),
-        (error: unknown) =>
-          active && setState(error instanceof ApiError && error.status === 403 ? { kind: 'noAccess' } : { kind: 'failed' }),
-      )
-    return () => {
-      active = false
-    }
-  }, [auth])
+  const state: MeState = me.isSuccess
+    ? { kind: 'loaded', me: me.data }
+    : !me.isError
+      ? { kind: 'loading' }
+      : me.error instanceof ApiError && me.error.status === 403
+        ? { kind: 'noAccess' }
+        : { kind: 'failed' }
 
   // Who's signed in comes from sign-in itself, so it's known from the first frame and
   // never changes. The API only supplies the role (it enforces access on every request

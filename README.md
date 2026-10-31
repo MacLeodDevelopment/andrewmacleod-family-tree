@@ -303,6 +303,21 @@ A **person** ([`Person.cs`](src/FamilyTree.Domain/Person.cs)) has a recorded **s
 
 Vite replaces `import.meta.env.VITE_*` references with literal values **at build time**. The deploy workflow builds the front end with `VITE_API_BASE_URL` set to the API's address (taken from the Bicep deployment's outputs), so the address is baked into the published JavaScript. Locally it's unset, and [`apiUrl.ts`](web/src/shared/api/apiUrl.ts) falls back to the page's own origin, which is where the Vite proxy picks calls up.
 
+### The people screens
+
+An admin can list people, add someone, open their page, record a birth or death, and delete them. Editing comes next. Three pieces do the work, all in [`web/src`](web/src):
+
+- **Pages are addresses.** [React Router](https://reactrouter.com/) maps `/people`, `/people/new` and `/people/:id` to components in the browser, so links and the back button work as usual. Static Web Apps doesn't have a file at those addresses, so its `navigationFallback` setting serves `index.html` and the router takes over.
+- **Data from the API goes through [TanStack Query](https://tanstack.com/query).** A component says what it needs (`useQuery`) and gets back loading, error and data states, and the answer is shared by key. For example, the header's role badge, the People link and the admin check all use one `/me` request ([`me.ts`](web/src/shared/api/me.ts)). After a change, a screen *invalidates* the keys it affected and they're refetched, which keeps the list up to date. Failed requests are retried twice in case the API is waking from zero, except 4xx refusals, which wouldn't change ([`queryClient.ts`](web/src/shared/api/queryClient.ts)).
+- **One function talks to the API.** [`client.ts`](web/src/shared/api/client.ts) adds the access token and turns any failure into an `ApiError` carrying the problem details. The forms read `errors` from it and show each message beside its field, so validation rules live only in the API.
+
+Things worth knowing:
+
+- **Hiding a screen isn't security.** [`RequireAdmin`](web/src/features/people/RequireAdmin.tsx) just stops viewers landing on a page that wouldn't work. The API refuses their requests either way.
+- **Possible duplicates.** A 409 lists the matches and offers "add anyway", which repeats the request with `?allowDuplicate=true`. Matches are links labelled by number, because the API returns only their IDs.
+- **Events.** The form offers only events the person doesn't have yet, because the API allows one birth and one death.
+- **No inline styles.** The Content Security Policy has `style-src 'self'`, so a `style={...}` prop would be blocked in production even though it works under `npm run dev`. Use classes in `styles.css`, and try changes with `npm run build` then `npm run preview`.
+
 ### Security headers on the web app
 
 Static Web Apps sends HTTP response headers that tell the browser what the page may and may not do. They're defined in [`web/build/staticWebApp.ts`](web/build/staticWebApp.ts).
@@ -566,8 +581,7 @@ az containerapp show -g rg-familytree -n familytree-api --query "properties.temp
 
 The app is being built in small iterations, one pull request each, so the PR history is the record of what changed and why. Coming next, roughly in order:
 
-- Hardening: security headers (including a Content Security Policy), rate limiting, consistent error responses.
-- An editing UI that only Andrew can use.
+- The rest of the editing UI that only Andrew can use: changing people, then adding relatives.
 - Search, profiles and tree views for viewers.
 - A privacy rule: details of living people are hidden from viewers.
 - Maps.
