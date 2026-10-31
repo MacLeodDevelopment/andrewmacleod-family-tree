@@ -38,6 +38,10 @@ Content-Type: application/json
 GET {{api}}/api/v1/admin/people?skip=0&take=50
 Authorization: Bearer {{token}}
 
+### Find people by name: every word must match part of a given name or surname
+GET {{api}}/api/v1/admin/people?search=morag macleod
+Authorization: Bearer {{token}}
+
 ### Read one person: replace the ID with one from the list
 GET {{api}}/api/v1/admin/people/01a191bb-71f7-7816-930b-25f3daecd1a9
 Authorization: Bearer {{token}}

@@ -20,7 +20,7 @@ public class FamiliesTests(ApiFactory factory, SqlServerContainer sqlServer) : I
 
     private sealed record FamilyResponse(Guid Id, Guid? Partner1Id, Guid? Partner2Id, string Type, Child[] Children);
 
-    private sealed record PersonFamilies(FamilyResponse[] AsChild, FamilyResponse[] AsPartner);
+    private sealed record PersonFamilies(FamilyResponse[] AsChild, FamilyResponse[] AsPartner, Created[] People);
 
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
@@ -69,6 +69,58 @@ public class FamiliesTests(ApiFactory factory, SqlServerContainer sqlServer) : I
         Assert.Equal(father, saved.Partner2Id);
         Assert.Equal("Marriage", saved.Type);
         Assert.Equal([first, second], saved.Children.Select(child => child.ChildId));
+    }
+
+    [Fact]
+    public async Task A_persons_families_come_with_everyone_in_them()
+    {
+        var client = AdminClient();
+        var (mother, father, child, sibling, stranger) = (
+            await PersonAsync(client), await PersonAsync(client), await PersonAsync(client), await PersonAsync(client), await PersonAsync(client));
+        var family = await FamilyAsync(client, mother, father);
+        await AddChildAsync(client, family, child);
+        await AddChildAsync(client, family, sibling);
+
+        var families = await client.GetFromJsonAsync<PersonFamilies>($"{People}/{child}/families", Cancellation);
+
+        Assert.Equivalent(new[] { mother, father, child, sibling }, families!.People.Select(person => person.Id).ToArray());
+        Assert.DoesNotContain(stranger, families.People.Select(person => person.Id));
+    }
+
+    [Fact]
+    public async Task A_family_can_be_recorded_together_with_its_first_child()
+    {
+        var client = AdminClient();
+        var (mother, child) = (await PersonAsync(client), await PersonAsync(client));
+
+        var response = await client.PostAsJsonAsync(Families, new
+        {
+            partner1Id = mother,
+            type = "None",
+            children = new[] { new { childId = child, partner1Relationship = "Adopted" } },
+        }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var family = Assert.Single((await client.GetFromJsonAsync<PersonFamilies>($"{People}/{child}/families", Cancellation))!.AsChild);
+        Assert.Equal(new Child(child, "Adopted", "Unknown"), Assert.Single(family.Children));
+    }
+
+    [Fact]
+    public async Task A_child_who_is_refused_leaves_no_family_behind()
+    {
+        var client = AdminClient();
+        var (parent, child) = (await PersonAsync(client), await PersonAsync(client));
+        await AddChildAsync(client, await FamilyAsync(client, parent), child);
+
+        var loop = await client.PostAsJsonAsync(Families,
+            new { partner1Id = child, children = new[] { new { childId = parent } } }, Cancellation);
+        var missing = await client.PostAsJsonAsync(Families,
+            new { partner1Id = child, children = new[] { new { childId = Guid.NewGuid() } } }, Cancellation);
+
+        await AssertRefusedAsync(loop, "childId");
+        await AssertRefusedAsync(missing, "childId");
+        var families = await client.GetFromJsonAsync<PersonFamilies>($"{People}/{child}/families", Cancellation);
+        Assert.Empty(families!.AsPartner);
     }
 
     [Fact]

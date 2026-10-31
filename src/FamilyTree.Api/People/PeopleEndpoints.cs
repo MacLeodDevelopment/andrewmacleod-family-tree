@@ -145,10 +145,18 @@ public static class PeopleEndpoints
         return person is null ? Results.NotFound() : Results.Ok(ToResponse(person));
     }
 
+    /// <summary>Everyone, or with <paramref name="search"/>, people with a name containing every word of it.</summary>
     private static async Task<PeoplePage> ListAsync(
-        FamilyTreeDbContext database, CancellationToken cancellationToken, int skip = 0, int take = DefaultPageSize)
+        FamilyTreeDbContext database, CancellationToken cancellationToken, int skip = 0, int take = DefaultPageSize, string? search = null)
     {
-        var people = await database.People.AsNoTracking()
+        var matching = database.People.AsNoTracking();
+        foreach (var word in (search ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            matching = matching.Where(person => person.Names.Any(name =>
+                name.GivenName.Contains(word) || (name.Surname != null && name.Surname.Contains(word))));
+        }
+
+        var people = await matching
             .OrderBy(person => person.Id)
             .Skip(Math.Max(skip, 0))
             .Take(Math.Clamp(take, 1, MaxPageSize))
@@ -156,7 +164,7 @@ public static class PeopleEndpoints
 
         return new PeoplePage(
             people.Select(ToResponse).ToList(),
-            await database.People.CountAsync(cancellationToken));
+            await matching.CountAsync(cancellationToken));
     }
 
     private static async Task<IResult> AddEventAsync(
@@ -217,7 +225,7 @@ public static class PeopleEndpoints
     private static List<NameDetails> ToNameDetails(PersonRequest request) =>
         (request.Names ?? []).Select(name => new NameDetails(name.GivenName, name.Surname, name.Type)).ToList();
 
-    private static PersonResponse ToResponse(Person person) => new(
+    internal static PersonResponse ToResponse(Person person) => new(
         person.Id,
         person.Sex,
         person.Names.OrderBy(name => name.Position)
