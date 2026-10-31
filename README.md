@@ -201,7 +201,7 @@ A **person** ([`Person.cs`](src/FamilyTree.Domain/Person.cs)) has a recorded **s
 | `PUT /api/v1/admin/people/{id}` | Replaces a person's sex and all their names, by the same rules as adding them. Their events are untouched. Returns 200 with the person, 400 or 404. |
 | `DELETE /api/v1/admin/people/{id}` | Permanently removes a person, with their names and events. Returns 204, or 404, or 409 if they're in a family. |
 
-- **Possible duplicates.** Adding someone whose main name matches a name on an existing person (ignoring case) stops with **409 Conflict**, listing the matches in `duplicates`. If it's a different person, send it again with `?allowDuplicate=true`.
+- **Possible duplicates.** Adding someone whose main name matches a name on an existing person (ignoring case) stops with **409 Conflict**, returning the people in `matches`. If it's a different person, send it again with `?allowDuplicate=true`.
   - It's a prompt, not a rule. Families reuse names, so the same name is often a different person. Birth years can't help here, because a person is created before their events.
   - That's why there's no unique constraint in the database. Two identical requests sent at the same instant could both succeed.
   - Merging two records comes later, and will need to carry their family links across.
@@ -322,12 +322,14 @@ A person's page also shows their **family**: parents, brothers and sisters, each
 - **A brother or sister** joins one of the person's families, so it's only offered once they have one. Siblings whose parents are both unknown still can't be linked.
 - **Undoing a link** asks first, and never deletes a person. Removing a partner keeps any children with the other partner; if there are no children the family goes too.
 
-Not yet: creating someone new from this page, so add them from the People page first, then link them. "Brothers and sisters" lists only people in the same family, so half-siblings through a parent's other partnership aren't shown here.
+- **Someone not in the tree yet** can be added from any of these forms with "Add someone new", starting from the name searched for. They're saved straight away and chosen, then Save links them. So cancelling after that leaves them in the tree with no relatives, and you can delete them from their page. If the name matches someone, you can use that person instead, or add anyway.
+
+"Brothers and sisters" lists only people in the same family, so half-siblings through a parent's other partnership aren't shown here.
 
 Things worth knowing:
 
 - **Hiding a screen isn't security.** [`RequireAdmin`](web/src/features/people/RequireAdmin.tsx) just stops viewers landing on a page that wouldn't work. The API refuses their requests either way.
-- **Possible duplicates.** A 409 lists the matches and offers "add anyway", which repeats the request with `?allowDuplicate=true`. Matches are links labelled by number, because the API returns only their IDs.
+- **Possible duplicates.** A 409 lists the matches by name and offers "add anyway", which repeats the request with `?allowDuplicate=true`.
 - **Events.** The form offers only events the person doesn't have yet, because the API allows one birth and one death.
 - **Correcting a date starts from `dateAsEntered`,** the text as it was typed ("abt 1870"), not the display version ("c. 1870"), so saving without a change leaves the record as it was.
 - **Last save wins.** Editing has no check for changes made elsewhere since the page loaded. Only one person edits, so it's not needed yet, but it would be if that changes.

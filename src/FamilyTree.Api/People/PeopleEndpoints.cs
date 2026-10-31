@@ -61,7 +61,7 @@ public static class PeopleEndpoints
                 statusCode: StatusCodes.Status409Conflict,
                 title: "This may be a duplicate",
                 detail: "Someone with this name already exists. If this is a different person, send the request again with ?allowDuplicate=true.",
-                extensions: new Dictionary<string, object?> { ["duplicates"] = matches });
+                extensions: new Dictionary<string, object?> { ["matches"] = matches.Select(ToResponse).ToList() });
         }
 
         database.People.Add(result.Value);
@@ -100,14 +100,13 @@ public static class PeopleEndpoints
     /// why the database has no unique constraint, and two identical requests sent at the same
     /// moment could both succeed.
     /// </summary>
-    private static async Task<List<Guid>> FindSameNameAsync(
+    private static async Task<List<Person>> FindSameNameAsync(
         Person person, FamilyTreeDbContext database, CancellationToken cancellationToken)
     {
         var (givenName, surname) = (person.Names[0].GivenName, person.Names[0].Surname);
 
-        return await database.People
+        return await database.People.AsNoTracking()
             .Where(existing => existing.Names.Any(name => name.GivenName == givenName && name.Surname == surname))
-            .Select(existing => existing.Id)
             .ToListAsync(cancellationToken);
     }
 

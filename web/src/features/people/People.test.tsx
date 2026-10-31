@@ -215,7 +215,7 @@ describe('Adding a person', () => {
         requests.push(new URL(request.url).search)
         return new URL(request.url).search
           ? HttpResponse.json(morag, { status: 201 })
-          : HttpResponse.json({ title: 'This may be a duplicate', duplicates: ['match-id'] }, { status: 409, ...problemJson })
+          : HttpResponse.json({ title: 'This may be a duplicate', matches: [{ ...morag, id: 'match-id' }] }, { status: 409, ...problemJson })
       }),
     )
     personIs(morag)
@@ -225,7 +225,9 @@ describe('Adding a person', () => {
     type('Given name', 'Morag')
     click('Save')
 
-    expect(await screen.findByRole('link', { name: 'See match 1' })).toHaveAttribute('href', '/people/match-id')
+    const match = await screen.findByRole('link', { name: 'Morag MacLeod' })
+    expect(match).toHaveAttribute('href', '/people/match-id')
+    expect(match.closest('li')).toHaveTextContent('b. c. 1870')
     click("It's a different person: add anyway")
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Morag MacLeod' })).toBeInTheDocument()
@@ -1018,6 +1020,143 @@ describe("A person's family", () => {
     click('Cancel')
 
     expect(screen.queryByRole('button', { name: 'Yes, remove' })).not.toBeInTheDocument()
+  })
+
+  describe('when the relative is not in the tree yet', () => {
+    async function startAddingSomeone() {
+      await openEwan()
+      searchFinds()
+      click('Add a partner')
+      click('Add someone new')
+    }
+
+    it('adds them and chooses them, ready to link', async () => {
+      let sent: unknown
+      let linked: unknown
+      await startAddingSomeone()
+      server.use(
+        http.post('*/api/v1/admin/people', async ({ request }) => {
+          sent = await request.json()
+          return HttpResponse.json(rory, { status: 201 })
+        }),
+        http.post('*/api/v1/admin/families', async ({ request }) => {
+          linked = await request.json()
+          return HttpResponse.json({}, { status: 201 })
+        }),
+      )
+
+      type('Given name', 'Rory')
+      type('Surname', 'MacLeod')
+      type('Sex', 'Male')
+      click('Add to the tree')
+
+      expect(await screen.findByText('Chosen:')).toHaveTextContent('Rory MacLeod')
+      expect(screen.queryByLabelText('Given name')).not.toBeInTheDocument()
+      expect(sent).toEqual({ sex: 'Male', names: [{ givenName: 'Rory', surname: 'MacLeod', type: 'Birth' }] })
+      click('Save')
+      await waitFor(() => expect(linked).toEqual({ partner1Id: 'ewan', partner2Id: 'rory', type: 'Marriage' }))
+    })
+
+    it('starts from the name that was searched for', async () => {
+      await openEwan()
+      searchFinds()
+      click('Add a partner')
+
+      type('Find someone', 'Rory Mac Leod')
+      click('Add someone new')
+
+      expect(screen.getByLabelText('Given name')).toHaveValue('Rory')
+      expect(screen.getByLabelText('Surname')).toHaveValue('Mac Leod')
+    })
+
+    it('can use a person who turns out to be there already', async () => {
+      let linked: unknown
+      await startAddingSomeone()
+      server.use(
+        http.post('*/api/v1/admin/people', () =>
+          HttpResponse.json({ title: 'This may be a duplicate', matches: [{ ...rory, events: morag.events }] }, { status: 409, ...problemJson }),
+        ),
+        http.post('*/api/v1/admin/families', async ({ request }) => {
+          linked = await request.json()
+          return HttpResponse.json({}, { status: 201 })
+        }),
+      )
+
+      type('Given name', 'Rory')
+      click('Add to the tree')
+      fireEvent.click(await screen.findByRole('button', { name: /Use Rory MacLeod b\. c\. 1870/ }))
+
+      expect(await screen.findByText('Chosen:')).toHaveTextContent('Rory MacLeod')
+      click('Save')
+      await waitFor(() => expect(linked).toEqual({ partner1Id: 'ewan', partner2Id: 'rory', type: 'Marriage' }))
+    })
+
+    it('can add a different person who shares the name', async () => {
+      const searches: string[] = []
+      await startAddingSomeone()
+      server.use(
+        http.post('*/api/v1/admin/people', ({ request }) => {
+          const { search } = new URL(request.url)
+          searches.push(search)
+          return search
+            ? HttpResponse.json(rory, { status: 201 })
+            : HttpResponse.json({ matches: [{ ...rory, id: 'other' }] }, { status: 409, ...problemJson })
+        }),
+      )
+
+      type('Given name', 'Rory')
+      click('Add to the tree')
+      fireEvent.click(await screen.findByRole('button', { name: "It's a different person: add anyway" }))
+
+      expect(await screen.findByText('Chosen:')).toHaveTextContent('Rory MacLeod')
+      expect(searches).toEqual(['', '?allowDuplicate=true'])
+    })
+
+    it('never offers the person themselves as the match', async () => {
+      await startAddingSomeone()
+      server.use(
+        http.post('*/api/v1/admin/people', () =>
+          HttpResponse.json({ matches: [ewan, { ...ewan, id: 'other-ewan' }] }, { status: 409, ...problemJson }),
+        ),
+      )
+
+      type('Given name', 'Ewan')
+      click('Add to the tree')
+
+      expect(await screen.findAllByRole('button', { name: /^Use Ewan MacLeod/ })).toHaveLength(1)
+    })
+
+    it('shows the reason next to the name when it is refused', async () => {
+      await startAddingSomeone()
+      server.use(
+        http.post('*/api/v1/admin/people', () =>
+          HttpResponse.json({ errors: { 'names[0].givenName': ['A given name is required.'] } }, { status: 400, ...problemJson }),
+        ),
+      )
+
+      click('Add to the tree')
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('A given name is required.')
+      expect(screen.getByLabelText('Given name')).toHaveAttribute('aria-invalid', 'true')
+    })
+
+    it('says so when adding fails for another reason', async () => {
+      await startAddingSomeone()
+      server.use(http.post('*/api/v1/admin/people', () => new HttpResponse(null, { status: 500 })))
+
+      click('Add to the tree')
+
+      expect(await screen.findByRole('alert')).toHaveTextContent("This person couldn't be added.")
+    })
+
+    it('can back out without adding anyone', async () => {
+      await startAddingSomeone()
+
+      click('Cancel adding')
+
+      expect(screen.queryByLabelText('Given name')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    })
   })
 
   it('can back out of adding a relative', async () => {

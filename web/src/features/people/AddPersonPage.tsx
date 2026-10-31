@@ -1,8 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router'
 import { ApiError, useApi } from '../../shared/api/client.ts'
+import { DuplicateNotice } from './DuplicateNotice.tsx'
 import { PersonForm } from './PersonForm.tsx'
-import { peopleUrl, type Person, type PersonDetails } from './people.ts'
+import { duplicateMatches, fullName, lifeDates, peopleUrl, type Person, type PersonDetails } from './people.ts'
 
 interface NewPerson {
   details: PersonDetails
@@ -27,30 +28,22 @@ export function AddPersonPage() {
   })
 
   const problem = addPerson.error instanceof ApiError ? addPerson.error.problem : undefined
-  const duplicates = problem?.duplicates ?? []
+  const duplicates = duplicateMatches(problem)
 
   const renderNotice = (details: PersonDetails) => (
     <>
       {duplicates.length > 0 && (
-        <div role="alert" className="notice">
-          <p>
-            <strong>This may be a duplicate.</strong> Someone with this name already exists:
-          </p>
-          <ul>
-            {duplicates.map((id, index) => (
-              <li key={id}>
-                <Link to={`/people/${id}`}>See match {index + 1}</Link>
-              </li>
-            ))}
-          </ul>
-          <button
-            type="button"
-            disabled={addPerson.isPending}
-            onClick={() => addPerson.mutate({ details, allowDuplicate: true })}
-          >
-            It's a different person: add anyway
-          </button>
-        </div>
+        <DuplicateNotice
+          matches={duplicates}
+          renderMatch={(person) => (
+            <>
+              <Link to={`/people/${person.id}`}>{fullName(person)}</Link>{' '}
+              <span className="people-list-dates">{lifeDates(person)}</span>
+            </>
+          )}
+          adding={addPerson.isPending}
+          onAddAnyway={() => addPerson.mutate({ details, allowDuplicate: true })}
+        />
       )}
 
       {addPerson.isError && !problem?.errors && duplicates.length === 0 && (
