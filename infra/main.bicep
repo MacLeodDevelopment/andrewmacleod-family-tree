@@ -31,6 +31,12 @@ param apiCustomDomainCertificateExists bool = false
 @description('Name of the managed identity GitHub deploys as (created by hand in docs/setup-azure.md). It becomes the SQL server\'s administrator, so the pipeline can apply database migrations.')
 param deployIdentityName string = '${namePrefix}-github-deploy'
 
+// New SQL servers are restricted for this subscription in UK South, UK West, North Europe,
+// West Europe and Norway East (October 2026). Azure can't move a server between regions, so
+// changing this means creating a new server and migrating the data.
+@description('Location for the SQL server and database, which has its own availability.')
+param sqlLocation string = 'swedencentral'
+
 // Built-in role: AcrPull.
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 
@@ -101,9 +107,10 @@ resource deployIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-1
 }
 
 resource sqlServer 'Microsoft.Sql/servers@2023-08-01' = {
-  // Server names are global.
-  name: '${namePrefix}-sql-${uniqueString(resourceGroup().id)}'
-  location: location
+  // Server names are global. The region is part of the hash because a server can't change
+  // region: moving means a new server, and Azure refuses to reuse a name it has seen elsewhere.
+  name: '${namePrefix}-sql-${uniqueString(resourceGroup().id, sqlLocation)}'
+  location: sqlLocation
   properties: {
     minimalTlsVersion: '1.2'
     publicNetworkAccess: 'Enabled'
@@ -137,7 +144,7 @@ resource sqlAllowAzureServices 'Microsoft.Sql/servers/firewallRules@2023-08-01' 
 resource database 'Microsoft.Sql/servers/databases@2023-08-01' = {
   parent: sqlServer
   name: databaseName
-  location: location
+  location: sqlLocation
   sku: {
     name: 'GP_S_Gen5_2'
     tier: 'GeneralPurpose'

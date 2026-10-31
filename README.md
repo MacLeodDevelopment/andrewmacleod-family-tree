@@ -103,7 +103,7 @@ The app has two halves that are built, hosted and deployed separately: a static 
  Azure Container Registry  (familytree<random>, Basic tier, UK South)
 ```
 
-Everything lives in one Azure **resource group**, `rg-familytree` (UK South). A resource group is a named container for related resources, which makes it easy to see costs, set permissions, or delete everything in one go.
+Everything lives in one Azure **resource group**, `rg-familytree` (UK South), although a resource group's region is only where its metadata is kept: the database is in Sweden Central and the web app's host is in East US 2. A resource group is a named container for related resources, which makes it easy to see costs, set permissions, or delete everything in one go.
 
 ### The pieces, and why each was chosen
 
@@ -144,7 +144,7 @@ Locally, none of this is needed. The Vite dev server proxies `/health` (and late
 The family tree's data lives in **Azure SQL Database**, Microsoft's managed SQL Server, accessed through **Entity Framework Core** (EF Core), .NET's standard ORM.
 
 **The resources** ([`infra/main.bicep`](infra/main.bicep)):
-- A SQL **server** (`familytree-sql-<random>`, UK South): a logical container that holds the database, its firewall and who administers it.
+- A SQL **server** (`familytree-sql-<random>`, **Sweden Central**): a logical container that holds the database, its firewall and who administers it.
 - A **database**, `familytree`. It's **serverless**: it scales its compute with load, and **pauses** after an hour with no use.
   - It's on Azure SQL's **free offer**: 100,000 vCore-seconds of compute and 32 GB of storage a month, at no cost. If the allowance ever runs out, it pauses until the next month rather than charging.
   - **Waking up takes time.** The first request after a pause waits while the database resumes, up to a minute. The API's connection retries (`EnableRetryOnFailure` in [`SqlServerOptions.cs`](src/FamilyTree.Infrastructure/SqlServerOptions.cs)) and its generous connect timeout cover this.
@@ -401,9 +401,13 @@ A budget alert on the resource group is worth having (setup guide, section 8).
 These are mostly lessons learned the hard way.
 
 - **The first visit after a quiet spell is slow.** The API scales to zero, so it takes a few seconds to start, and the page shows "Checking the API…" meanwhile. Setting `minReplicas: 1` in Bicep would remove the delay, but costs a few pounds a month for an always-on replica.
+- **The database is in Sweden Central, not the UK.** In October 2026 Azure refused new SQL servers for this subscription in UK South (`RegionDoesNotAllowProvisioning`), and also in UK West, North Europe, West Europe and Norway East.
+  - **See what's allowed:** `az rest --method GET --uri "https://management.azure.com/subscriptions/<subscription ID>/providers/Microsoft.Sql/locations/<region>/capabilities?api-version=2023-08-01&include=supportedEditions" --query "{status:status, reason:reason}"`. `Available` means you can create servers there; `Visible` with a reason means you can't. Azure's message says exceptions need a support request.
+  - **What it means:** family data is held in the EU rather than the UK. The API stays in UK South, so every database call crosses regions, which adds some delay and may add a small data-transfer charge.
+  - **Moving it later** means creating a new server and migrating the data, because Azure can't change a server's region. The `sqlLocation` parameter in `infra/main.bicep` sets the region.
 - **The Static Web App is in East US 2, not the UK.**
   - On this subscription, Static Web Apps is only offered in a handful of regions: Central US, East US 2, West US 2, West Europe and East Asia. West Europe wasn't accepting new customers in October 2026.
-  - The region only holds the app's configuration and the built files. Pages are served from the global edge, and all data is meant to stay in UK South.
+  - The region only holds the app's configuration and the built files. Pages are served from the global edge, and no family data is held there.
   - To move it, delete and recreate it (Azure can't change a resource's region), then repoint the GoDaddy CNAME at the new `azurestaticapps.net` hostname.
   - The alternative considered was serving the front end from the API container in UK South. That would mean one origin and no CORS, but it would add a cold start to page loads.
 - **Deploy fails at "Azure login" with `AADSTS700213: No matching federated identity record found`.** The federated credential's subject doesn't match the token GitHub sent. The error message includes the subject GitHub actually presented; the credential must match it exactly, IDs included.
