@@ -1,6 +1,7 @@
 using FamilyTree.Api.Account;
 using FamilyTree.Api.Authorization;
 using FamilyTree.Api.Database;
+using FamilyTree.Api.Families;
 using FamilyTree.Api.People;
 using FamilyTree.Api.RateLimiting;
 using FamilyTree.Infrastructure;
@@ -97,7 +98,8 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check 
 
 app.MapGroup("/api/v1")
     .MapMeEndpoints()
-    .MapPeopleEndpoints();
+    .MapPeopleEndpoints()
+    .MapFamiliesEndpoints();
 
 app.Run();
 

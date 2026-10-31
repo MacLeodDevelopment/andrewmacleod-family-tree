@@ -53,6 +53,40 @@ Content-Type: application/json
 
 { "type": "Birth", "date": "abt 1870", "place": "Innellan, Argyll" }
 
+### Record a family: replace the IDs. Leave out partner2Id if the other parent is unknown.
+POST {{api}}/api/v1/admin/families
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "partner1Id": "00000000-0000-0000-0000-000000000000",
+  "partner2Id": "00000000-0000-0000-0000-000000000000",
+  "type": "Marriage"
+}
+
+### Add a child to a family. Relationships: Biological, Adopted, Step, Foster, Presumed, Unknown
+POST {{api}}/api/v1/admin/families/00000000-0000-0000-0000-000000000000/children
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "childId": "00000000-0000-0000-0000-000000000000",
+  "partner1Relationship": "Biological",
+  "partner2Relationship": "Step"
+}
+
+### A person's families, as a child and as a partner
+GET {{api}}/api/v1/admin/people/00000000-0000-0000-0000-000000000000/families
+Authorization: Bearer {{token}}
+
+### Take a child out of a family: family ID, then child ID. The person isn't deleted.
+DELETE {{api}}/api/v1/admin/families/00000000-0000-0000-0000-000000000000/children/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{token}}
+
+### Delete a family and its child links. The people aren't deleted.
+DELETE {{api}}/api/v1/admin/families/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{token}}
+
 ### Refused: a person needs a given name
 POST {{api}}/api/v1/admin/people
 Authorization: Bearer {{token}}

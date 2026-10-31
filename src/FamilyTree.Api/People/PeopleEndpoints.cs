@@ -83,13 +83,25 @@ public static class PeopleEndpoints
             .ToListAsync(cancellationToken);
     }
 
-    /// <summary>Permanently removes a person, with their names and events.</summary>
+    /// <summary>Permanently removes a person, with their names and events, unless they're in a family.</summary>
     private static async Task<IResult> DeleteAsync(Guid id, FamilyTreeDbContext database, CancellationToken cancellationToken)
     {
         var person = await database.People.SingleOrDefaultAsync(p => p.Id == id, cancellationToken);
         if (person is null)
         {
             return Results.NotFound();
+        }
+
+        // Deleting someone mustn't quietly tear a hole in the tree.
+        var inAFamily = await database.Families.AnyAsync(
+            family => family.Partner1Id == id || family.Partner2Id == id || family.Children.Any(child => child.ChildId == id),
+            cancellationToken);
+        if (inAFamily)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "This person is part of a family",
+                detail: "Remove them from their families first.");
         }
 
         database.People.Remove(person);

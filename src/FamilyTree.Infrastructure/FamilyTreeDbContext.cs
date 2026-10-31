@@ -11,6 +11,8 @@ public sealed class FamilyTreeDbContext(DbContextOptions<FamilyTreeDbContext> op
 {
     public DbSet<Person> People => Set<Person>();
 
+    public DbSet<Family> Families => Set<Family>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Person>(person =>
@@ -48,6 +50,32 @@ public sealed class FamilyTreeDbContext(DbContextOptions<FamilyTreeDbContext> op
             });
             person.Navigation(p => p.Events).UsePropertyAccessMode(PropertyAccessMode.Field);
             person.Ignore(p => p.Timeline);
+        });
+
+        modelBuilder.Entity<Family>(family =>
+        {
+            family.ToTable("Families");
+            family.HasKey(f => f.Id);
+            family.Property(f => f.Id).ValueGeneratedNever();
+            family.Property(f => f.Type).HasConversion<string>().HasMaxLength(20);
+            family.Ignore(f => f.Partners);
+
+            // Restrict: someone can't be deleted while a family refers to them.
+            family.HasOne<Person>().WithMany().HasForeignKey(f => f.Partner1Id).OnDelete(DeleteBehavior.Restrict);
+            family.HasOne<Person>().WithMany().HasForeignKey(f => f.Partner2Id).OnDelete(DeleteBehavior.Restrict);
+
+            family.OwnsMany(f => f.Children, child =>
+            {
+                child.ToTable("FamilyChildren");
+                child.WithOwner().HasForeignKey("FamilyId");
+                child.HasKey("FamilyId", nameof(ChildLink.ChildId));
+                child.Property(c => c.ChildId).ValueGeneratedNever();
+                child.Property(c => c.Partner1Relationship).HasConversion<string>().HasMaxLength(20);
+                child.Property(c => c.Partner2Relationship).HasConversion<string>().HasMaxLength(20);
+                child.HasOne<Person>().WithMany().HasForeignKey(c => c.ChildId).OnDelete(DeleteBehavior.Restrict);
+                child.HasIndex(c => c.ChildId);
+            });
+            family.Navigation(f => f.Children).UsePropertyAccessMode(PropertyAccessMode.Field);
         });
     }
 }
