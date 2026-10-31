@@ -301,19 +301,65 @@ public sealed class Family
     private static Dictionary<string, string[]> Error(string field, string message) => new() { [field] = [message] };
 }
 
+/// <summary>The families around someone, and which of the people in them are their half-siblings.</summary>
+public sealed record FamilyNeighbourhood(IReadOnlySet<Family> Families, IReadOnlySet<Guid> HalfSiblings);
+
 /// <summary>
 /// The family tree as parent-to-child links, for walking through it. A family of thousands
 /// fits easily in memory, which keeps this simple code rather than recursive SQL.
 /// </summary>
 public sealed class FamilyGraph
 {
+    private readonly List<Family> families;
     private readonly ILookup<Guid, Guid> childrenOf;
 
     public FamilyGraph(IEnumerable<Family> families)
     {
-        childrenOf = families
+        this.families = families.ToList();
+        childrenOf = this.families
             .SelectMany(family => family.Partners.SelectMany(parent => family.Children.Select(child => (parent, child.ChildId))))
             .ToLookup(link => link.parent, link => link.ChildId);
+    }
+
+    /// <summary>
+    /// The part of the tree around someone: their ancestors' families for <paramref name="up"/>
+    /// generations, and their descendants' for <paramref name="down"/>. Those include brothers
+    /// and sisters at each level. With any generations up, it also includes the parents' other
+    /// families, whose children are the person's half-siblings.
+    /// </summary>
+    public FamilyNeighbourhood Around(Guid personId, int up, int down)
+    {
+        var included = new HashSet<Family>();
+
+        var generation = new HashSet<Guid> { personId };
+        for (var i = 0; i < up; i++)
+        {
+            var theirFamilies = families.Where(f => f.Children.Any(child => generation.Contains(child.ChildId))).ToList();
+            included.UnionWith(theirFamilies);
+            generation = theirFamilies.SelectMany(f => f.Partners).ToHashSet();
+        }
+
+        generation = [personId];
+        for (var i = 0; i < down; i++)
+        {
+            var theirFamilies = families.Where(f => f.Partners.Any(generation.Contains)).ToList();
+            included.UnionWith(theirFamilies);
+            generation = theirFamilies.SelectMany(f => f.Children).Select(child => child.ChildId).ToHashSet();
+        }
+
+        var halfSiblings = new HashSet<Guid>();
+        if (up > 0)
+        {
+            var ownFamilies = families.Where(f => f.Children.Any(child => child.ChildId == personId)).ToList();
+            var parents = ownFamilies.SelectMany(f => f.Partners).ToHashSet();
+            var otherFamilies = families.Except(ownFamilies).Where(f => f.Partners.Any(parents.Contains)).ToList();
+
+            included.UnionWith(otherFamilies);
+            halfSiblings.UnionWith(otherFamilies.SelectMany(f => f.Children).Select(child => child.ChildId));
+            halfSiblings.ExceptWith(ownFamilies.SelectMany(f => f.Children).Select(child => child.ChildId));
+        }
+
+        return new FamilyNeighbourhood(included, halfSiblings);
     }
 
     /// <summary>Everyone descended from this person, through any kind of parent link.</summary>
