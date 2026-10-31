@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query'
-import type { Person } from './people.ts'
+import { fullName, type Person } from './people.ts'
 
 export const partnershipTypes = {
   Unknown: 'Unknown',
@@ -41,6 +41,20 @@ export const familiesUrl = '/api/v1/admin/families'
 /** The other partner in a family: null if they're unknown. */
 export function otherPartner(family: Family, personId: string): string | null {
   return family.partner1Id === personId ? family.partner2Id : family.partner1Id
+}
+
+/** A person's name, from those who came with a family. */
+export function personName(id: string, people: Person[]): string {
+  const person = people.find((candidate) => candidate.id === id)
+  return person ? fullName(person) : 'Unnamed'
+}
+
+/** A family's known partners, for telling families apart, such as "Anna MacLeod and Ewan MacLeod". */
+export function parentsOf(family: Family, people: Person[]): string {
+  return [family.partner1Id, family.partner2Id]
+    .filter((id) => id !== null)
+    .map((id) => personName(id, people))
+    .join(' and ')
 }
 
 /** A child's relationship to one of the family's partners. */

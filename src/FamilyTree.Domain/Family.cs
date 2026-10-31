@@ -49,6 +49,10 @@ public sealed class ChildLink
     public ParentRelationship Partner1Relationship { get; private set; }
 
     public ParentRelationship Partner2Relationship { get; private set; }
+
+    internal void SetPartner1Relationship(ParentRelationship relationship) => Partner1Relationship = relationship;
+
+    internal void SetPartner2Relationship(ParentRelationship relationship) => Partner2Relationship = relationship;
 }
 
 /// <summary>
@@ -99,6 +103,73 @@ public sealed class Family
             Partner2Id = partner2Id,
             Type = type,
         });
+    }
+
+    public void ChangeType(PartnershipType type) => Type = type;
+
+    /// <summary>
+    /// Fills the family's unknown partner, who becomes a parent of all its children with
+    /// <paramref name="relationship"/>. <paramref name="tree"/> is used as in <see cref="AddChild"/>.
+    /// </summary>
+    public Result<Family> NamePartner(Guid partnerId, ParentRelationship relationship, FamilyGraph tree)
+    {
+        if (Partners.Contains(partnerId))
+        {
+            return Failure("partnerId", "This person is already in this partnership.");
+        }
+
+        if (Partner1Id is not null && Partner2Id is not null)
+        {
+            return Failure("partnerId", "This family already has two partners.");
+        }
+
+        if (children.Any(child => child.ChildId == partnerId))
+        {
+            return Failure("partnerId", "A person can't be their own parent.");
+        }
+
+        if (children.Any(child => tree.DescendantsOf(child.ChildId).Contains(partnerId)))
+        {
+            return Failure("partnerId", "This would make someone their own ancestor.");
+        }
+
+        if (Partner1Id is null)
+        {
+            Partner1Id = partnerId;
+            children.ForEach(child => child.SetPartner1Relationship(relationship));
+        }
+        else
+        {
+            Partner2Id = partnerId;
+            children.ForEach(child => child.SetPartner2Relationship(relationship));
+        }
+
+        return Result<Family>.Success(this);
+    }
+
+    /// <summary>
+    /// Makes a partner unknown again. Their children stay in the family with the other
+    /// partner, so there must be one. The person themselves is untouched.
+    /// </summary>
+    public Result<Family> RemovePartner(Guid partnerId)
+    {
+        if (Partners.Count() < 2)
+        {
+            return Failure("partnerId", "A family needs at least one known partner.");
+        }
+
+        if (Partner1Id == partnerId)
+        {
+            Partner1Id = null;
+            children.ForEach(child => child.SetPartner1Relationship(ParentRelationship.Unknown));
+        }
+        else
+        {
+            Partner2Id = null;
+            children.ForEach(child => child.SetPartner2Relationship(ParentRelationship.Unknown));
+        }
+
+        return Result<Family>.Success(this);
     }
 
     /// <summary>

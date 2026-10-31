@@ -19,6 +19,10 @@ public static class FamiliesEndpoints
         PartnershipType Type = PartnershipType.Unknown,
         IReadOnlyList<AddChildRequest>? Children = null);
 
+    public sealed record ChangeFamilyRequest(PartnershipType Type);
+
+    public sealed record NamePartnerRequest(Guid PartnerId, ParentRelationship Relationship = ParentRelationship.Unknown);
+
     public sealed record ChildResponse(Guid ChildId, ParentRelationship Partner1Relationship, ParentRelationship Partner2Relationship);
 
     public sealed record FamilyResponse(Guid Id, Guid? Partner1Id, Guid? Partner2Id, PartnershipType Type, IReadOnlyList<ChildResponse> Children);
@@ -36,7 +40,10 @@ public static class FamiliesEndpoints
 
         admin.MapPost("/families", CreateAsync);
         admin.MapGet("/families/{id:guid}", GetAsync).WithName(nameof(FamiliesEndpoints) + nameof(GetAsync));
+        admin.MapPut("/families/{id:guid}", ChangeAsync);
         admin.MapDelete("/families/{id:guid}", DeleteAsync);
+        admin.MapPost("/families/{id:guid}/partners", NamePartnerAsync);
+        admin.MapDelete("/families/{id:guid}/partners/{partnerId:guid}", RemovePartnerAsync);
         admin.MapPost("/families/{id:guid}/children", AddChildAsync);
         admin.MapDelete("/families/{id:guid}/children/{childId:guid}", RemoveChildAsync);
         admin.MapGet("/people/{id:guid}/families", ForPersonAsync);
@@ -101,6 +108,75 @@ public static class FamiliesEndpoints
         var family = await database.Families.AsNoTracking().SingleOrDefaultAsync(f => f.Id == id, cancellationToken);
 
         return family is null ? Results.NotFound() : Results.Ok(ToResponse(family));
+    }
+
+    private static async Task<IResult> ChangeAsync(
+        Guid id, ChangeFamilyRequest request, FamilyTreeDbContext database, CancellationToken cancellationToken)
+    {
+        var family = await database.Families.SingleOrDefaultAsync(f => f.Id == id, cancellationToken);
+        if (family is null)
+        {
+            return Results.NotFound();
+        }
+
+        family.ChangeType(request.Type);
+        await database.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(ToResponse(family));
+    }
+
+    private static async Task<IResult> NamePartnerAsync(
+        Guid id, NamePartnerRequest request, FamilyTreeDbContext database, CancellationToken cancellationToken)
+    {
+        var family = await database.Families.SingleOrDefaultAsync(f => f.Id == id, cancellationToken);
+        if (family is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!await database.People.AnyAsync(person => person.Id == request.PartnerId, cancellationToken))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["partnerId"] = ["There's no person with this ID."] });
+        }
+
+        var tree = new FamilyGraph(await database.Families.AsNoTracking().ToListAsync(cancellationToken));
+        var result = family.NamePartner(request.PartnerId, request.Relationship, tree);
+        if (!result.IsSuccess)
+        {
+            return Results.ValidationProblem(result.Errors.ToDictionary());
+        }
+
+        await database.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(ToResponse(family));
+    }
+
+    /// <summary>Undoes a partner. A family left with nobody's children has no reason to exist, so it goes too.</summary>
+    private static async Task<IResult> RemovePartnerAsync(
+        Guid id, Guid partnerId, FamilyTreeDbContext database, CancellationToken cancellationToken)
+    {
+        var family = await database.Families.SingleOrDefaultAsync(f => f.Id == id, cancellationToken);
+        if (family is null || !family.Partners.Contains(partnerId))
+        {
+            return Results.NotFound();
+        }
+
+        if (family.Children.Count == 0)
+        {
+            database.Families.Remove(family);
+        }
+        else
+        {
+            var result = family.RemovePartner(partnerId);
+            if (!result.IsSuccess)
+            {
+                return Results.ValidationProblem(result.Errors.ToDictionary());
+            }
+        }
+
+        await database.SaveChangesAsync(cancellationToken);
+
+        return Results.NoContent();
     }
 
     /// <summary>Removes the family and its child links. The people themselves are untouched.</summary>

@@ -460,6 +460,27 @@ h3 {
   margin-top: 1rem;
 }
 
+.relatives-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+}
+
+.relatives-row .notice {
+  width: 100%;
+}
+
+.relatives-row-buttons {
+  gap: 0.5rem;
+  margin: 0.25rem 0;
+}
+
+.relatives-row-buttons .notice {
+  width: 100%;
+}
+
 /* --------- FORMS --------- */
 .form {
   display: grid;

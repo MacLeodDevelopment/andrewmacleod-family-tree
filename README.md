@@ -260,7 +260,10 @@ A **person** ([`Person.cs`](src/FamilyTree.Domain/Person.cs)) has a recorded **s
 |---|---|
 | `POST /api/v1/admin/families` | Records a family, and optionally its first `children`, saved together so a refused child leaves no empty family behind. |
 | `GET /api/v1/admin/families/{id}` | Reads a family. |
+| `PUT /api/v1/admin/families/{id}` | Changes the partnership type. |
 | `DELETE /api/v1/admin/families/{id}` | Removes a family and its child links. |
+| `POST /api/v1/admin/families/{id}/partners` | Names the unknown partner, with their `relationship` to all the family's children. Subject to the same ancestor check as adding a child. |
+| `DELETE /api/v1/admin/families/{id}/partners/{partnerId}` | Makes a partner unknown again and resets the children's relationship to them. The family goes too if it has no children. Refused for the only known parent of children. |
 | `POST /api/v1/admin/families/{id}/children` | Adds a child, with their relationship to each parent. |
 | `DELETE /api/v1/admin/families/{id}/children/{childId}` | Takes a child out of a family. |
 | `GET /api/v1/admin/people/{id}/families` | A person's families, as a child and as a partner, with everyone in them under `people`, so a screen can name them with one request. |
@@ -313,9 +316,13 @@ An admin can list people, add, correct and delete them, and record, correct and 
 - **Data from the API goes through [TanStack Query](https://tanstack.com/query).** A component says what it needs (`useQuery`) and gets back loading, error and data states, and the answer is shared by key. For example, the header's role badge, the People link and the admin check all use one `/me` request ([`me.ts`](web/src/shared/api/me.ts)). After a change, a screen *invalidates* the keys it affected and they're refetched, which keeps the list up to date. Failed requests are retried twice in case the API is waking from zero, except 4xx refusals, which wouldn't change ([`queryClient.ts`](web/src/shared/api/queryClient.ts)).
 - **One function talks to the API.** [`client.ts`](web/src/shared/api/client.ts) adds the access token and turns any failure into an `ApiError` carrying the problem details. The forms read `errors` from it and show each message beside its field, so validation rules live only in the API.
 
-A person's page also shows their **family**: parents, brothers and sisters, each partnership, and the children of it ([`Relatives.tsx`](web/src/features/people/Relatives.tsx)). You can link a partner or child by searching for someone already in the tree. A relationship other than biological is shown beside the name. A child whose other parent isn't known goes in a family with one partner, created along with the child the first time and reused after that.
+A person's page also shows their **family**: parents, brothers and sisters, each partnership, and the children of it ([`Relatives.tsx`](web/src/features/people/Relatives.tsx)). You can link a parent, brother or sister, partner or child by searching for someone already in the tree. A relationship other than biological is shown beside the name. A child whose other parent isn't known goes in a family with one partner, created along with the child the first time and reused after that.
 
-Not yet: adding a parent or sibling, undoing a link, or creating someone new from this page. For now, add the person from the People page, then link them. "Brothers and sisters" lists only people in the same family, so half-siblings through a parent's other partnership aren't shown here.
+- **Adding a parent** fills an unknown parent's place in a family, and they become a parent of all its children. Choosing "a new set of parents" instead creates a separate family, which is how an adoptive family sits beside a birth family.
+- **A brother or sister** joins one of the person's families, so it's only offered once they have one. Siblings whose parents are both unknown still can't be linked.
+- **Undoing a link** asks first, and never deletes a person. Removing a partner keeps any children with the other partner; if there are no children the family goes too.
+
+Not yet: creating someone new from this page, so add them from the People page first, then link them. "Brothers and sisters" lists only people in the same family, so half-siblings through a parent's other partnership aren't shown here.
 
 Things worth knowing:
 

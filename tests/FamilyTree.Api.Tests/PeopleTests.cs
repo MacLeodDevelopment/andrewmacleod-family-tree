@@ -122,12 +122,13 @@ public class PeopleTests(ApiFactory factory, SqlServerContainer sqlServer) : ICl
     {
         var client = Api().CreateClientFor(Admin);
         var word = $"Findme{Guid.NewGuid():N}";
-        await client.PostAsJsonAsync($"{People}?allowDuplicate=true", new
+        var givenName = UniqueName();
+        await client.PostAsJsonAsync(People, new
         {
             names = new[]
             {
-                new { givenName = "Isla", surname = "Campbell", type = "Birth" },
-                new { givenName = "Isla", surname = word, type = "Married" },
+                new { givenName, surname = "Campbell", type = "Birth" },
+                new { givenName, surname = word, type = "Married" },
             },
         }, Cancellation);
 
