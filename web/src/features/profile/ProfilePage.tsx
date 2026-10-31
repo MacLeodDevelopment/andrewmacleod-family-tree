@@ -34,7 +34,7 @@ export function ProfilePage() {
 function ProfileDetails({ profile }: { profile: Profile }) {
   const me = useMe()
   const [main, ...otherNames] = profile.names
-  const { parents, siblings, partnerships, events } = profile
+  const { isPrivate, parents, siblings, partnerships, events } = profile
   const nothingKnown = parents.length === 0 && siblings.length === 0 && partnerships.length === 0
 
   return (
@@ -58,7 +58,8 @@ function ProfileDetails({ profile }: { profile: Profile }) {
       )}
 
       <h2>Life</h2>
-      {events.length === 0 ? <p>No events recorded yet.</p> : <Events events={events} />}
+      {isPrivate && <p>Dates and places are hidden, because this person may be living.</p>}
+      {!isPrivate && (events.length === 0 ? <p>No events recorded yet.</p> : <Events events={events} />)}
 
       <h2>Family</h2>
       {nothingKnown && <p>No family recorded yet.</p>}

@@ -1,6 +1,9 @@
+using System.Security.Claims;
+using FamilyTree.Api.Authorization;
 using FamilyTree.Api.People;
 using FamilyTree.Domain;
 using FamilyTree.Infrastructure;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace FamilyTree.Api.Profiles;
@@ -31,9 +34,10 @@ public static class ProfilesEndpoints
         IReadOnlyList<ProfileEvent> Events,
         IReadOnlyList<ProfileChild> Children);
 
+    /// <param name="IsPrivate">True if their details are hidden because they may be living.</param>
     public sealed record Profile(
         Guid Id,
-        Sex Sex,
+        bool IsPrivate,
         IReadOnlyList<ProfileName> Names,
         IReadOnlyList<ProfileEvent> Events,
         IReadOnlyList<ProfileParent> Parents,
@@ -43,7 +47,8 @@ public static class ProfilesEndpoints
     /// <summary>
     /// /people: finding and reading people, for every family member. These have their own
     /// response types, so what relatives can see is decided here and nowhere else, and
-    /// adding to the admin screens can't show them anything new.
+    /// adding to the admin screens can't show them anything new. Everything about a person
+    /// that isn't their name or a relationship goes through <see cref="Privacy"/>.
     /// </summary>
     public static RouteGroupBuilder MapProfilesEndpoints(this RouteGroupBuilder group)
     {
@@ -55,22 +60,37 @@ public static class ProfilesEndpoints
         return group;
     }
 
-    private static async Task<SearchResults> SearchAsync(string? q, FamilyTreeDbContext database, CancellationToken cancellationToken)
+    /// <summary>Whose details this reader can't see: anyone who may be living, unless the reader is an admin.</summary>
+    private sealed record Privacy(bool SeesEverything, int CurrentYear)
+    {
+        public static async Task<Privacy> ForAsync(ClaimsPrincipal user, IAuthorizationService authorization)
+        {
+            var result = await authorization.AuthorizeAsync(user, FamilyPolicies.Admin);
+            return new Privacy(result.Succeeded, TimeProvider.System.GetUtcNow().Year);
+        }
+
+        public bool Hides(Person person) => !SeesEverything && person.MayBeLiving(CurrentYear);
+    }
+
+    private static async Task<SearchResults> SearchAsync(
+        string? q, ClaimsPrincipal user, IAuthorizationService authorization, FamilyTreeDbContext database, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(q))
         {
             return new SearchResults([], 0);
         }
 
+        var privacy = await Privacy.ForAsync(user, authorization);
         var matching = database.People.AsNoTracking().WithNameContaining(q);
         var people = await matching.OrderBy(person => person.Id).Take(MaxSearchResults).ToListAsync(cancellationToken);
 
         return new SearchResults(
-            people.Select(ToSummary).OrderBy(person => person.Name, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            people.Select(person => ToSummary(person, privacy)).OrderBy(person => person.Name, StringComparer.CurrentCultureIgnoreCase).ToList(),
             await matching.CountAsync(cancellationToken));
     }
 
-    private static async Task<IResult> GetAsync(Guid id, FamilyTreeDbContext database, CancellationToken cancellationToken)
+    private static async Task<IResult> GetAsync(
+        Guid id, ClaimsPrincipal user, IAuthorizationService authorization, FamilyTreeDbContext database, CancellationToken cancellationToken)
     {
         var person = await database.People.AsNoTracking().SingleOrDefaultAsync(p => p.Id == id, cancellationToken);
         if (person is null)
@@ -78,6 +98,7 @@ public static class ProfilesEndpoints
             return Results.NotFound();
         }
 
+        var privacy = await Privacy.ForAsync(user, authorization);
         var families = await database.Families.AsNoTracking()
             .Where(f => f.Partner1Id == id || f.Partner2Id == id || f.Children.Any(child => child.ChildId == id))
             .ToListAsync(cancellationToken);
@@ -98,21 +119,23 @@ public static class ProfilesEndpoints
         var everyoneMentioned = families.Concat(parentsOtherFamilies)
             .SelectMany(f => f.Partners.Concat(f.Children.Select(child => child.ChildId)))
             .Distinct().ToList();
-        var summaries = (await database.People.AsNoTracking()
+        var relatives = (await database.People.AsNoTracking()
             .Where(p => everyoneMentioned.Contains(p.Id))
             .ToListAsync(cancellationToken))
-            .ToDictionary(p => p.Id, ToSummary);
+            .ToDictionary(p => p.Id);
+        var summaries = relatives.Values.ToDictionary(p => p.Id, p => ToSummary(p, privacy));
+        var isPrivate = privacy.Hides(person);
 
         return Results.Ok(new Profile(
             person.Id,
-            person.Sex,
+            isPrivate,
             person.Names.OrderBy(name => name.Position).Select(name => new ProfileName(name.GivenName, name.Surname, name.Type)).ToList(),
-            person.Timeline.Select(e => new ProfileEvent(e.Type.ToString(), e.Date?.Display, e.Place)).ToList(),
+            isPrivate ? [] : person.Timeline.Select(e => new ProfileEvent(e.Type.ToString(), e.Date?.Display, e.Place)).ToList(),
             asChild.SelectMany(f => ParentsIn(f, id, summaries)).ToList(),
             siblings.Select(sibling => new ProfileSibling(summaries[sibling], IsHalf: false))
                 .Concat(halfSiblings.Select(sibling => new ProfileSibling(summaries[sibling], IsHalf: true)))
                 .ToList(),
-            asPartner.Select(f => ToPartnership(f, id, summaries)).ToList()));
+            asPartner.Select(f => ToPartnership(f, id, summaries, ShowsEvents(f, relatives, privacy))).ToList()));
     }
 
     private static IEnumerable<ProfileParent> ParentsIn(Family family, Guid childId, Dictionary<Guid, PersonSummary> summaries)
@@ -123,14 +146,19 @@ public static class ProfilesEndpoints
         yield return new ProfileParent(Summary(family.Partner2Id, summaries), link.Partner2Relationship);
     }
 
-    private static ProfilePartnership ToPartnership(Family family, Guid personId, Dictionary<Guid, PersonSummary> summaries)
+    /// <summary>A marriage is private if either partner's details are.</summary>
+    private static bool ShowsEvents(Family family, Dictionary<Guid, Person> relatives, Privacy privacy) =>
+        !family.Partners.Any(partner => privacy.Hides(relatives[partner]));
+
+    private static ProfilePartnership ToPartnership(
+        Family family, Guid personId, Dictionary<Guid, PersonSummary> summaries, bool showsEvents)
     {
         var isPartner1 = family.Partner1Id == personId;
 
         return new ProfilePartnership(
             Summary(isPartner1 ? family.Partner2Id : family.Partner1Id, summaries),
             family.Type,
-            family.Timeline.Select(e => new ProfileEvent(e.Type.ToString(), e.Date?.Display, e.Place)).ToList(),
+            showsEvents ? family.Timeline.Select(e => new ProfileEvent(e.Type.ToString(), e.Date?.Display, e.Place)).ToList() : [],
             family.Children.OrderBy(child => child.Position)
                 .Select(child => new ProfileChild(
                     summaries[child.ChildId],
@@ -141,15 +169,16 @@ public static class ProfilesEndpoints
     private static PersonSummary? Summary(Guid? id, Dictionary<Guid, PersonSummary> summaries) =>
         id is null ? null : summaries[id.Value];
 
-    private static PersonSummary ToSummary(Person person)
+    private static PersonSummary ToSummary(Person person, Privacy privacy)
     {
         var main = person.Names.OrderBy(name => name.Position).First();
+        var hidden = privacy.Hides(person);
 
         return new PersonSummary(
             person.Id,
             string.Join(' ', new[] { main.GivenName, main.Surname }.Where(part => part is not null)),
-            DateOf(person, EventType.Birth),
-            DateOf(person, EventType.Death));
+            hidden ? null : DateOf(person, EventType.Birth),
+            hidden ? null : DateOf(person, EventType.Death));
     }
 
     private static string? DateOf(Person person, EventType type) =>

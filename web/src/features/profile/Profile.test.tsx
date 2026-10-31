@@ -23,7 +23,7 @@ const calum = summary('calum', 'Calum MacLeod')
 
 const profile: Profile = {
   id: 'morag',
-  sex: 'Female',
+  isPrivate: false,
   names: [
     { givenName: 'Morag', surname: 'MacLeod', type: 'Birth' },
     { givenName: 'Morag', surname: 'Campbell', type: 'Married' },
@@ -206,6 +206,16 @@ describe('A profile', () => {
 
     expect(await screen.findByText('No family recorded yet.')).toBeInTheDocument()
     expect(screen.getByText('No events recorded yet.')).toBeInTheDocument()
+  })
+
+  it('explains when details are hidden, rather than saying there are none', async () => {
+    signedInWithRoles('Family.Viewer')
+    profileIs({ ...profile, isPrivate: true, events: [] })
+    renderApp(signedIn, '/family/morag')
+
+    expect(await screen.findByText(/hidden, because this person may be living/)).toBeInTheDocument()
+    expect(screen.queryByText('No events recorded yet.')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Anna MacLeod' })).toBeInTheDocument()
   })
 
   it('offers viewers no way to edit', async () => {
