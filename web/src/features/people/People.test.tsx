@@ -27,6 +27,16 @@ function personIs(person: Person) {
   server.use(http.get(`*/api/v1/admin/people/${person.id}`, () => HttpResponse.json(person)))
 }
 
+function savesEventChanges(onChange: (body: unknown) => Person) {
+  server.use(
+    http.put('*/api/v1/admin/people/morag-id/events/e1', async ({ request }) => {
+      const changed = onChange(await request.json())
+      personIs(changed)
+      return HttpResponse.json(changed)
+    }),
+  )
+}
+
 const type = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
 const click = (name: string) => fireEvent.click(screen.getByRole('button', { name }))
 
@@ -304,6 +314,97 @@ describe("A person's page", () => {
     expect(screen.getByLabelText('Date')).toHaveValue('31 Feb 1900')
   })
 
+  it('corrects an event, starting from the date as it was typed', async () => {
+    signedInWithRoles('Family.Admin')
+    personIs(morag)
+    let sent: unknown
+    savesEventChanges((body) => {
+      sent = body
+      return { ...morag, events: [{ ...morag.events[0], date: '1871', place: 'Dunoon' }] }
+    })
+    renderApp(signedIn, '/people/morag-id')
+    await screen.findByRole('heading', { level: 1, name: 'Morag MacLeod' })
+
+    click('Edit birth')
+    const form = within(screen.getByRole('form', { name: 'Edit birth' }))
+    expect(form.getByLabelText('Date')).toHaveValue('abt 1870')
+    fireEvent.change(form.getByLabelText('Date'), { target: { value: '1871' } })
+    fireEvent.change(form.getByLabelText('Place'), { target: { value: 'Dunoon' } })
+    fireEvent.click(form.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText(/1871 · Dunoon/)).toBeInTheDocument()
+    expect(screen.queryByRole('form', { name: 'Edit birth' })).not.toBeInTheDocument()
+    expect(sent).toEqual({ date: '1871', place: 'Dunoon' })
+  })
+
+  it('keeps an event open with the reason when a correction is refused', async () => {
+    signedInWithRoles('Family.Admin')
+    personIs(morag)
+    server.use(
+      http.put('*/api/v1/admin/people/morag-id/events/e1', () =>
+        HttpResponse.json({ errors: { date: ["That isn't a date this understands."] } }, { status: 400, ...problemJson }),
+      ),
+    )
+    renderApp(signedIn, '/people/morag-id')
+    await screen.findByRole('heading', { level: 1, name: 'Morag MacLeod' })
+
+    click('Edit birth')
+    const form = within(screen.getByRole('form', { name: 'Edit birth' }))
+    fireEvent.change(form.getByLabelText('Date'), { target: { value: '31 Feb 1900' } })
+    fireEvent.click(form.getByRole('button', { name: 'Save' }))
+
+    expect(await form.findByRole('alert')).toHaveTextContent("isn't a date this understands")
+    expect(form.getByLabelText('Date')).toHaveValue('31 Feb 1900')
+  })
+
+  it('can back out of correcting an event', async () => {
+    signedInWithRoles('Family.Admin')
+    personIs(morag)
+    renderApp(signedIn, '/people/morag-id')
+    await screen.findByRole('heading', { level: 1, name: 'Morag MacLeod' })
+
+    click('Edit birth')
+    click('Cancel')
+
+    expect(screen.getByText(/c\. 1870/)).toBeInTheDocument()
+    expect(screen.queryByRole('form', { name: 'Edit birth' })).not.toBeInTheDocument()
+  })
+
+  it('removes an event only after confirming, and offers it again', async () => {
+    signedInWithRoles('Family.Admin')
+    personIs(morag)
+    let removed = false
+    server.use(
+      http.delete('*/api/v1/admin/people/morag-id/events/e1', () => {
+        removed = true
+        personIs({ ...morag, events: [] })
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    renderApp(signedIn, '/people/morag-id')
+    await screen.findByRole('heading', { level: 1, name: 'Morag MacLeod' })
+
+    click('Remove birth')
+    expect(removed).toBe(false)
+    click('Yes, remove')
+
+    expect(await screen.findByText('No events recorded yet.')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Event')).getAllByRole('option').map((option) => option.textContent)).toEqual(['Birth', 'Death'])
+  })
+
+  it('says so when an event cannot be removed', async () => {
+    signedInWithRoles('Family.Admin')
+    personIs(morag)
+    server.use(http.delete('*/api/v1/admin/people/morag-id/events/e1', () => new HttpResponse(null, { status: 500 })))
+    renderApp(signedIn, '/people/morag-id')
+    await screen.findByRole('heading', { level: 1, name: 'Morag MacLeod' })
+
+    click('Remove birth')
+    click('Yes, remove')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("This event couldn't be removed.")
+  })
+
   it('deletes someone only after confirming, then returns to the list', async () => {
     signedInWithRoles('Family.Admin')
     let deleted = false
@@ -353,5 +454,109 @@ describe("A person's page", () => {
     click('Yes, delete')
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Remove them from their families first.')
+  })
+})
+
+describe('Editing a person', () => {
+  const isla: Person = {
+    id: 'isla-id',
+    sex: 'Unknown',
+    names: [
+      { givenName: 'Isla', surname: 'Campbell', type: 'Birth' },
+      { givenName: 'Isla', surname: null, type: 'Nickname' },
+    ],
+    events: [],
+  }
+
+  async function openEditor() {
+    signedInWithRoles('Family.Admin')
+    personIs(isla)
+    renderApp(signedIn, '/people/isla-id')
+    fireEvent.click(await screen.findByRole('link', { name: 'Edit' }))
+    await screen.findByRole('heading', { name: 'Edit Isla Campbell' })
+  }
+
+  it('starts from what is recorded, saves changes and shows the person', async () => {
+    let sent: unknown
+    server.use(
+      http.put('*/api/v1/admin/people/isla-id', async ({ request }) => {
+        sent = await request.json()
+        const changed = { ...isla, names: [{ ...isla.names[0], surname: 'MacLeod' }] }
+        personIs(changed)
+        return HttpResponse.json(changed)
+      }),
+    )
+    await openEditor()
+    const [main, other] = screen.getAllByRole('group')
+    expect(within(main).getByLabelText('Surname')).toHaveValue('Campbell')
+    expect(within(other).getByLabelText('Type of name')).toHaveValue('Nickname')
+
+    fireEvent.change(within(main).getByLabelText('Surname'), { target: { value: 'MacLeod' } })
+    type('Sex', 'Female')
+    click('Remove this name')
+    click('Save')
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Isla MacLeod' })).toBeInTheDocument()
+    expect(sent).toEqual({ sex: 'Female', names: [{ givenName: 'Isla', surname: 'MacLeod', type: 'Birth' }] })
+  })
+
+  it('updates the list too', async () => {
+    let people = [isla]
+    server.use(
+      http.get('*/api/v1/admin/people', () => HttpResponse.json({ items: people, total: people.length })),
+      http.put('*/api/v1/admin/people/isla-id', () => {
+        const changed = { ...isla, names: [{ ...isla.names[0], surname: 'MacLeod' }] }
+        people = [changed]
+        personIs(changed)
+        return HttpResponse.json(changed)
+      }),
+    )
+    await openEditor()
+
+    click('Save')
+    fireEvent.click(await screen.findByRole('link', { name: 'Back to people' }))
+
+    expect(await screen.findByRole('link', { name: 'Isla MacLeod' })).toBeInTheDocument()
+  })
+
+  it('shows the reason next to the field, keeping what was typed', async () => {
+    server.use(
+      http.put('*/api/v1/admin/people/isla-id', () =>
+        HttpResponse.json({ errors: { 'names[1].givenName': ['A given name is required.'] } }, { status: 400, ...problemJson }),
+      ),
+    )
+    await openEditor()
+    const other = screen.getAllByRole('group')[1]
+
+    fireEvent.change(within(other).getByLabelText('Given name'), { target: { value: '' } })
+    click('Save')
+
+    expect(await within(other).findByRole('alert')).toHaveTextContent('A given name is required.')
+    expect(within(other).getByLabelText('Given name')).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('says so when saving fails for another reason', async () => {
+    server.use(http.put('*/api/v1/admin/people/isla-id', () => new HttpResponse(null, { status: 500 })))
+    await openEditor()
+
+    click('Save')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("The changes couldn't be saved.")
+  })
+
+  it('goes back to the person without saving when cancelled', async () => {
+    await openEditor()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Cancel' }))
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Isla Campbell' })).toBeInTheDocument()
+  })
+
+  it('is closed to viewers', async () => {
+    signedInWithRoles('Family.Viewer')
+
+    renderApp(signedIn, '/people/isla-id/edit')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("You don't have access to this page.")
   })
 })

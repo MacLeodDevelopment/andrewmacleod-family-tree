@@ -20,6 +20,10 @@ public class PeopleTests(ApiFactory factory, SqlServerContainer sqlServer) : ICl
 
     private sealed record Event(string Type, string? Date, string? DateAsEntered, string? Place);
 
+    private sealed record EventWithId(Guid Id);
+
+    private sealed record PersonEvents(EventWithId[] Events);
+
     private sealed record PersonResponse(Guid Id, string Sex, Name[] Names, Event[] Events);
 
     private sealed record Page(PersonResponse[] Items, int Total);
@@ -348,6 +352,215 @@ public class PeopleTests(ApiFactory factory, SqlServerContainer sqlServer) : ICl
             $"{People}/{Guid.NewGuid()}/events", new { type = "Birth" }, Cancellation);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    /// <summary>Records a birth on someone, and returns the address of the event.</summary>
+    private static async Task<string> AddBirthAsync(HttpClient client, string person, string date = "abt 1870", string? place = "Innellan")
+    {
+        var added = await client.PostAsJsonAsync($"{person}/events", new { type = "Birth", date, place }, Cancellation);
+        var saved = await added.Content.ReadFromJsonAsync<PersonEvents>(Cancellation);
+        return $"{person}/events/{saved!.Events.Single().Id}";
+    }
+
+    [Fact]
+    public async Task An_admin_can_correct_a_persons_sex_and_name()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = await AddPersonAsync(client);
+
+        var updated = await client.PutAsJsonAsync(person,
+            new { sex = "Female", names = new[] { new { givenName = "Mòrag", surname = "MacLeod", type = "Birth" } } }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
+        var saved = await client.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+        Assert.Equal("Female", saved!.Sex);
+        Assert.Equal(new Name("Mòrag", "MacLeod", "Birth"), Assert.Single(saved.Names));
+    }
+
+    [Fact]
+    public async Task Names_can_be_added_and_removed_over_several_changes()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = await AddPersonAsync(client);
+        var givenName = UniqueName();
+        var birth = new { givenName, surname = "Campbell", type = "Birth" };
+        var married = new { givenName, surname = "MacLeod", type = "Married" };
+        var nickname = new { givenName = "Izzy", surname = (string?)null, type = "Nickname" };
+
+        await client.PutAsJsonAsync(person, new { names = new[] { birth, married, nickname } }, Cancellation);
+        var three = await client.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+        await client.PutAsJsonAsync(person, new { names = new[] { married } }, Cancellation);
+        var one = await client.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+        await client.PutAsJsonAsync(person, new { names = new[] { married, birth } }, Cancellation);
+        var two = await client.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+
+        Assert.Equal(["Campbell", "MacLeod", null], three!.Names.Select(name => name.Surname));
+        Assert.Equal(["MacLeod"], one!.Names.Select(name => name.Surname));
+        Assert.Equal(["MacLeod", "Campbell"], two!.Names.Select(name => name.Surname));
+    }
+
+    [Fact]
+    public async Task Changing_a_person_keeps_their_events()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = await AddPersonAsync(client);
+        await AddBirthAsync(client, person);
+
+        await client.PutAsJsonAsync(person, new { names = new[] { new { givenName = UniqueName() } } }, Cancellation);
+
+        var saved = await client.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+        Assert.Equal("c. 1870", Assert.Single(saved!.Events).Date);
+    }
+
+    [Fact]
+    public async Task A_change_that_breaks_the_rules_is_refused_and_changes_nothing()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = await AddPersonAsync(client);
+        var before = await client.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+
+        var response = await client.PutAsJsonAsync(person,
+            new { sex = "Male", names = new[] { new { givenName = " " } } }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<ValidationProblemDetails>(Cancellation);
+        Assert.Contains("names[0].givenName", problem!.Errors.Keys);
+        var after = await client.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+        Assert.Equal("Unknown", after!.Sex);
+        Assert.Equal(before!.Names, after.Names);
+    }
+
+    [Fact]
+    public async Task Correcting_someone_to_a_name_already_in_use_is_allowed()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var name = UniqueName();
+        await client.PostAsJsonAsync(People, new { names = new[] { new { givenName = name } } }, Cancellation);
+        var person = await AddPersonAsync(client);
+
+        var response = await client.PutAsJsonAsync(person, new { names = new[] { new { givenName = name } } }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_admin_can_correct_when_and_where_an_event_happened()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = await AddPersonAsync(client);
+        var birth = await AddBirthAsync(client, person);
+
+        var changed = await client.PutAsJsonAsync(birth, new { date = "12 Mar 1871", place = "Dunoon" }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        var saved = await client.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+        Assert.Equal(new Event("Birth", "12 March 1871", "12 Mar 1871", "Dunoon"), Assert.Single(saved!.Events));
+    }
+
+    [Fact]
+    public async Task Rewording_a_date_keeps_what_was_typed()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = await AddPersonAsync(client);
+        var birth = await AddBirthAsync(client, person);
+
+        await client.PutAsJsonAsync(birth, new { date = "circa 1870" }, Cancellation);
+
+        var saved = await client.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+        Assert.Equal("circa 1870", Assert.Single(saved!.Events).DateAsEntered);
+    }
+
+    [Fact]
+    public async Task A_date_and_place_can_be_cleared_when_they_turn_out_to_be_wrong()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = await AddPersonAsync(client);
+        var birth = await AddBirthAsync(client, person);
+
+        await client.PutAsJsonAsync(birth, new { date = "", place = " " }, Cancellation);
+
+        var saved = await client.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+        Assert.Equal(new Event("Birth", null, null, null), Assert.Single(saved!.Events));
+    }
+
+    [Fact]
+    public async Task A_bad_date_on_an_event_is_refused_and_keeps_the_old_one()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = await AddPersonAsync(client);
+        var birth = await AddBirthAsync(client, person);
+
+        var response = await client.PutAsJsonAsync(birth, new { date = "31 Feb 1900", place = "Dunoon" }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<ValidationProblemDetails>(Cancellation);
+        Assert.Contains("date", problem!.Errors.Keys);
+        var saved = await client.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+        Assert.Equal(new Event("Birth", "c. 1870", "abt 1870", "Innellan"), Assert.Single(saved!.Events));
+    }
+
+    [Fact]
+    public async Task Removing_an_event_means_it_can_be_recorded_again()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = await AddPersonAsync(client);
+        var birth = await AddBirthAsync(client, person);
+
+        var removed = await client.DeleteAsync(birth, Cancellation);
+        var empty = await client.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+        var again = await client.PostAsJsonAsync($"{person}/events", new { type = "Birth", date = "1871" }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.NoContent, removed.StatusCode);
+        Assert.Empty(empty!.Events);
+        Assert.Equal(HttpStatusCode.Created, again.StatusCode);
+    }
+
+    [Fact]
+    public async Task Changing_someone_who_does_not_exist_gets_not_found()
+    {
+        var response = await Api().CreateClientFor(Admin).PutAsJsonAsync(
+            $"{People}/{Guid.NewGuid()}", new { names = new[] { new { givenName = "Mairi" } } }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_event_can_only_be_reached_through_the_person_it_belongs_to()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var owner = await AddPersonAsync(client);
+        var birth = await AddBirthAsync(client, owner);
+        var someoneElse = await AddPersonAsync(client);
+        var wrongAddress = $"{someoneElse}/events/{birth.Split('/')[^1]}";
+
+        var change = await client.PutAsJsonAsync(wrongAddress, new { date = "1999" }, Cancellation);
+        var remove = await client.DeleteAsync(wrongAddress, Cancellation);
+
+        Assert.Equal(HttpStatusCode.NotFound, change.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, remove.StatusCode);
+        var saved = await client.GetFromJsonAsync<PersonResponse>(owner, Cancellation);
+        Assert.Equal("c. 1870", Assert.Single(saved!.Events).Date);
+    }
+
+    [Fact]
+    public async Task Viewers_cannot_change_people_or_events()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var person = await AddPersonAsync(admin);
+        var birth = await AddBirthAsync(admin, person);
+        var viewer = api.CreateClientFor(Viewer);
+
+        var update = await viewer.PutAsJsonAsync(person, new { names = new[] { new { givenName = "Hacked" } } }, Cancellation);
+        var change = await viewer.PutAsJsonAsync(birth, new { date = "1999" }, Cancellation);
+        var remove = await viewer.DeleteAsync(birth, Cancellation);
+
+        Assert.Equal(HttpStatusCode.Forbidden, update.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, change.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, remove.StatusCode);
+        var saved = await admin.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+        Assert.NotEqual("Hacked", saved!.Names[0].GivenName);
+        Assert.Equal("c. 1870", Assert.Single(saved.Events).Date);
     }
 
     [Fact]

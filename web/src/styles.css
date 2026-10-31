@@ -413,6 +413,35 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.timeline-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+}
+
+.timeline-row .form-buttons {
+  gap: 0.5rem;
+}
+
+.timeline-notice {
+  margin-top: 0.5rem;
+}
+
+.timeline-notice .form-buttons {
+  margin-top: 0.75rem;
+}
+
+.timeline .form {
+  margin-top: 0.5rem;
+}
+
+button.small {
+  font-size: 0.85rem;
+  padding: 0.1rem 0.6rem;
+}
+
 /* --------- FORMS --------- */
 .form {
   display: grid;

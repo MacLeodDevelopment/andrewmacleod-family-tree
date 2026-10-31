@@ -46,6 +46,13 @@ public sealed class PersonName
     public string? Surname { get; private set; }
 
     public NameType Type { get; private set; }
+
+    internal void Change(string givenName, string? surname, NameType type)
+    {
+        GivenName = givenName;
+        Surname = surname;
+        Type = type;
+    }
 }
 
 public enum EventType
@@ -81,6 +88,12 @@ public sealed class LifeEvent
 
     /// <summary>Free text for now. Null when it isn't known.</summary>
     public string? Place { get; private set; }
+
+    internal void Change(GenealogicalDate? date, string? place)
+    {
+        Date = date;
+        Place = place;
+    }
 }
 
 /// <summary>Someone in the family tree. Create one with <see cref="Create"/>, which enforces the rules.</summary>
@@ -118,10 +131,48 @@ public sealed class Person
         // Version 7 GUIDs start with the time, so new rows go at the end of the table's
         // index instead of scattering across it.
         var person = new Person { Id = Guid.CreateVersion7(), Sex = sex };
-        person.names.AddRange(names.Select((name, position) =>
-            new PersonName(position, name.GivenName!.Trim(), Blank(name.Surname) ? null : name.Surname!.Trim(), name.Type)));
+        person.SetNames(names);
 
         return Result<Person>.Success(person);
+    }
+
+    /// <summary>Replaces the person's sex and names, by the same rules as <see cref="Create"/>.</summary>
+    public Result<Person> Update(Sex sex, IReadOnlyList<NameDetails> names)
+    {
+        var errors = Validate(names);
+        if (errors.Count > 0)
+        {
+            return Result<Person>.Failure(errors);
+        }
+
+        Sex = sex;
+        SetNames(names);
+
+        return Result<Person>.Success(this);
+    }
+
+    /// <summary>
+    /// Existing names are changed in place, not replaced, because a name's position is part
+    /// of its key in the database: removing and re-adding the same key in one save would clash.
+    /// </summary>
+    private void SetNames(IReadOnlyList<NameDetails> details)
+    {
+        names.RemoveAll(name => name.Position >= details.Count);
+
+        for (var position = 0; position < details.Count; position++)
+        {
+            var givenName = details[position].GivenName!.Trim();
+            var surname = Clean(details[position].Surname);
+
+            if (names.Find(name => name.Position == position) is { } existing)
+            {
+                existing.Change(givenName, surname, details[position].Type);
+            }
+            else
+            {
+                names.Add(new PersonName(position, givenName, surname, details[position].Type));
+            }
+        }
     }
 
     /// <summary>
@@ -137,6 +188,37 @@ public sealed class Person
             errors["type"] = [$"This person already has a {type.ToString().ToLowerInvariant()} recorded."];
         }
 
+        var date = ReadEventDetails(dateText, place, errors);
+        if (errors.Count > 0)
+        {
+            return Result<LifeEvent>.Failure(errors);
+        }
+
+        var lifeEvent = new LifeEvent(type, date, Clean(place));
+        events.Add(lifeEvent);
+        return Result<LifeEvent>.Success(lifeEvent);
+    }
+
+    /// <summary>Changes when and where an event happened. Its type stays the same.</summary>
+    public Result<LifeEvent> ChangeEvent(Guid eventId, string? dateText, string? place)
+    {
+        var errors = new Dictionary<string, string[]>();
+        var date = ReadEventDetails(dateText, place, errors);
+        if (errors.Count > 0)
+        {
+            return Result<LifeEvent>.Failure(errors);
+        }
+
+        var lifeEvent = events.Single(existing => existing.Id == eventId);
+        lifeEvent.Change(date, Clean(place));
+        return Result<LifeEvent>.Success(lifeEvent);
+    }
+
+    public void RemoveEvent(Guid eventId) => events.RemoveAll(existing => existing.Id == eventId);
+
+    /// <summary>The date, if there is one, adding anything wrong with the details to <paramref name="errors"/>.</summary>
+    private static GenealogicalDate? ReadEventDetails(string? dateText, string? place, Dictionary<string, string[]> errors)
+    {
         GenealogicalDate? date = null;
         if (!Blank(dateText))
         {
@@ -156,14 +238,7 @@ public sealed class Person
             errors["place"] = [$"A place can't be longer than {LifeEvent.MaxPlaceLength} characters."];
         }
 
-        if (errors.Count > 0)
-        {
-            return Result<LifeEvent>.Failure(errors);
-        }
-
-        var lifeEvent = new LifeEvent(type, date, Blank(place) ? null : place!.Trim());
-        events.Add(lifeEvent);
-        return Result<LifeEvent>.Success(lifeEvent);
+        return date;
     }
 
     private static Dictionary<string, string[]> Validate(IReadOnlyList<NameDetails> names)
@@ -195,4 +270,6 @@ public sealed class Person
     }
 
     private static bool Blank(string? text) => string.IsNullOrWhiteSpace(text);
+
+    private static string? Clean(string? text) => Blank(text) ? null : text!.Trim();
 }

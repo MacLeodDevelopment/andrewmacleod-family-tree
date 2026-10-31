@@ -1,3 +1,5 @@
+import type { QueryClient } from '@tanstack/react-query'
+
 export const nameTypes = ['Birth', 'Married', 'Alias', 'Nickname'] as const
 export const sexes = ['Unknown', 'Female', 'Male'] as const
 export const eventTypes = ['Birth', 'Death'] as const
@@ -29,12 +31,21 @@ export interface Person {
   events: LifeEvent[]
 }
 
+/** What can be changed about a person directly: everything except their events. */
+export type PersonDetails = Pick<Person, 'sex' | 'names'>
+
 export interface PeoplePage {
   items: Person[]
   total: number
 }
 
 export const peopleUrl = '/api/v1/admin/people'
+
+/** Fetches a person and the list again, after a change to them. */
+export async function refreshPerson(queryClient: QueryClient, id: string) {
+  await queryClient.invalidateQueries({ queryKey: ['person', id] })
+  await queryClient.invalidateQueries({ queryKey: ['people'] })
+}
 
 /** The person's main name, which is the first in their list. */
 export function fullName(person: Person): string {
