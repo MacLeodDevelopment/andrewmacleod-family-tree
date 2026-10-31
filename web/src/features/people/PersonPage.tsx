@@ -14,8 +14,9 @@ export function PersonPage() {
 function PersonDetails({ person }: { person: Person }) {
   return (
     <>
-      <p>
+      <p className="form-buttons">
         <Link to="/people">Back to people</Link>
+        <Link to={`/family/${person.id}`}>See profile</Link>
       </p>
       <div className="page-heading">
         <h1>{fullName(person)}</h1>

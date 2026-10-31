@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { ApiError, useApi } from '../../shared/api/client.ts'
+import { useDebounced } from '../../shared/useDebounced.ts'
 import { DuplicateNotice } from './DuplicateNotice.tsx'
 import { FieldError } from './FieldError.tsx'
 import { duplicateMatches, fullName, lifeDates, peopleUrl, sexes, type PeoplePage, type Person, type Sex } from './people.ts'
@@ -20,16 +21,10 @@ interface PersonPickerProps {
 export function PersonPicker({ excludeId, chosenId, onChoose }: PersonPickerProps) {
   const api = useApi()
   const [text, setText] = useState('')
-  const [search, setSearch] = useState('')
+  const search = useDebounced(text.trim(), searchDelayMs)
   const [addingNew, setAddingNew] = useState(false)
   // Someone just added or matched, who a search wouldn't be showing.
   const [justChosen, setJustChosen] = useState<Person | null>(null)
-
-  // Wait for a pause in the typing, so each keystroke doesn't use up the rate limit.
-  useEffect(() => {
-    const timer = setTimeout(() => setSearch(text.trim()), searchDelayMs)
-    return () => clearTimeout(timer)
-  }, [text])
 
   const results = useQuery({
     queryKey: ['people', 'search', search],

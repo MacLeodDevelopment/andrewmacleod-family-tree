@@ -148,12 +148,7 @@ public static class PeopleEndpoints
     private static async Task<PeoplePage> ListAsync(
         FamilyTreeDbContext database, CancellationToken cancellationToken, int skip = 0, int take = DefaultPageSize, string? search = null)
     {
-        var matching = database.People.AsNoTracking();
-        foreach (var word in (search ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            matching = matching.Where(person => person.Names.Any(name =>
-                name.GivenName.Contains(word) || (name.Surname != null && name.Surname.Contains(word))));
-        }
+        var matching = database.People.AsNoTracking().WithNameContaining(search);
 
         var people = await matching
             .OrderBy(person => person.Id)
@@ -164,6 +159,18 @@ public static class PeopleEndpoints
         return new PeoplePage(
             people.Select(ToResponse).ToList(),
             await matching.CountAsync(cancellationToken));
+    }
+
+    /// <summary>People with a name containing every word of <paramref name="search"/>, or everyone if it's empty.</summary>
+    internal static IQueryable<Person> WithNameContaining(this IQueryable<Person> people, string? search)
+    {
+        foreach (var word in (search ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            people = people.Where(person => person.Names.Any(name =>
+                name.GivenName.Contains(word) || (name.Surname != null && name.Surname.Contains(word))));
+        }
+
+        return people;
     }
 
     private static async Task<IResult> AddEventAsync(
