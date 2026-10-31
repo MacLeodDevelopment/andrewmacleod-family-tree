@@ -14,13 +14,19 @@ public enum DateQualifier
     Between,
 }
 
-/// <summary>A date that may only be known to the month or the year.</summary>
-public sealed record PartialDate(int Year, int? Month = null, int? Day = null)
+/// <summary>
+/// A date that may only be known to the month or the year. <see cref="Year"/> is always the
+/// year by today's reckoning. <see cref="IsDualYear"/> means it was written both ways, as
+/// 1650/51: until 1752 the legal year began on 25 March, so a date early in 1651 by today's
+/// reckoning was still 1650 at the time.
+/// </summary>
+public sealed record PartialDate(int Year, int? Month = null, int? Day = null, bool IsDualYear = false)
 {
     public override string ToString()
     {
         var month = Month is { } m ? CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(m) : null;
-        return string.Join(' ', new object?[] { Day, month, Year }.Where(part => part is not null));
+        var year = IsDualYear ? $"{Year - 1}/{Year % 100:00}" : Year.ToString(CultureInfo.InvariantCulture);
+        return string.Join(' ', new object?[] { Day, month, year }.Where(part => part is not null));
     }
 
     /// <summary>A number that sorts by date, with unknown parts filled in as given.</summary>
@@ -36,7 +42,10 @@ public sealed partial record GenealogicalDate
 {
     public const int MaxLength = 100;
 
-    private const string Examples = "Try 12 March 1901, Mar 1901, 1901, abt 1870, bef 1901, bet 1870 and 1875, or Q2 1880.";
+    private const string Examples = "Try 12 March 1901, Mar 1901, 1901, abt 1870, bef 1901, bet 1870 and 1875, Q2 1880, or 1650/51.";
+
+    /// <summary>The last year Britain used the Julian calendar and the 25 March new year.</summary>
+    private const int LastOldStyleYear = 1752;
 
     private static readonly Dictionary<string, DateQualifier> Prefixes = new()
     {
@@ -178,7 +187,25 @@ public sealed partial record GenealogicalDate
             return null;
         }
 
-        return Valid(Number(words, "year"), month, words.Groups["day"].Success ? Number(words, "day") : null);
+        var day = words.Groups["day"].Success ? Number(words, "day") : (int?)null;
+        return words.Groups["laterYear"].Success
+            ? DualYear(Number(words, "year"), words.Groups["laterYear"].Value, month, day)
+            : Valid(Number(words, "year"), month, day);
+    }
+
+    /// <summary>
+    /// A date written both ways, such as 1731/2 or 1699/00. The later year must follow the
+    /// first, and be written in full or by its final digits. Only the start of the year was
+    /// ever in doubt, so a known month must be January to March.
+    /// </summary>
+    private static PartialDate? DualYear(int firstYear, string laterYearText, int? month, int? day)
+    {
+        var year = firstYear + 1;
+        var followsOn = year.ToString(CultureInfo.InvariantCulture).EndsWith(laterYearText, StringComparison.Ordinal);
+
+        return followsOn && year <= LastOldStyleYear && month is null or <= 3
+            ? Valid(year, month, day) is { } date ? date with { IsDualYear = true } : null
+            : null;
     }
 
     private static int Number(Match match, string group) =>
@@ -202,10 +229,19 @@ public sealed partial record GenealogicalDate
     {
         var validYear = year is >= 1 and <= 9999;
         var validMonth = month is null or (>= 1 and <= 12);
-        var validDay = day is null || (month is { } m && validYear && validMonth && day >= 1 && day <= DateTime.DaysInMonth(year, m));
+        var validDay = day is null || (month is { } m && validYear && validMonth && day >= 1 && day <= DaysInMonth(year, m));
 
         return validYear && validMonth && validDay ? new PartialDate(year, month, day) : null;
     }
+
+    /// <summary>
+    /// Britain kept the Julian calendar, where every fourth year is a leap year, until 1752.
+    /// Its dates are checked by those rules, so 29 February 1700 is a real date here. Other
+    /// countries changed at other times, so nothing narrower than this is enforced: the
+    /// days dropped in September 1752 are accepted, because they existed elsewhere.
+    /// </summary>
+    private static int DaysInMonth(int year, int month) =>
+        month == 2 && year <= LastOldStyleYear && year % 4 == 0 ? 29 : DateTime.DaysInMonth(year, month);
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();
@@ -228,6 +264,6 @@ public sealed partial record GenealogicalDate
     [GeneratedRegex(@"^(?<day>\d{1,2})/(?<month>\d{1,2})/(?<year>\d{4})\z")]
     private static partial Regex SlashDate();
 
-    [GeneratedRegex(@"^(?:(?<day>\d{1,2})(?:st|nd|rd|th)? )?(?:(?<month>[a-z]+)\.? )?(?<year>\d{4})\z")]
+    [GeneratedRegex(@"^(?:(?<day>\d{1,2})(?:st|nd|rd|th)? )?(?:(?<month>[a-z]+)\.? )?(?<year>\d{4})(?:/(?<laterYear>\d{1,4}))?\z")]
     private static partial Regex WordDate();
 }
