@@ -255,6 +255,8 @@ h1 {
 
   .site-nav {
     grid-area: title;
+    gap: 0.25rem 0.6rem;
+    font-size: 0.9rem;
   }
 
   .account {
@@ -311,6 +313,7 @@ button:hover {
 /* --------- NAVIGATION --------- */
 .site-nav {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 1.25rem;
 }
@@ -318,6 +321,7 @@ button:hover {
 .site-title {
   color: var(--text);
   font-weight: 700;
+  white-space: nowrap;
 }
 
 /* --------- PAGES --------- */

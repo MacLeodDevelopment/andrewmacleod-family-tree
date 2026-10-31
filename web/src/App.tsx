@@ -4,7 +4,9 @@ import { AddPersonPage } from './features/people/AddPersonPage.tsx'
 import { EditPersonPage } from './features/people/EditPersonPage.tsx'
 import { PeopleListPage } from './features/people/PeopleListPage.tsx'
 import { PersonPage } from './features/people/PersonPage.tsx'
-import { RequireAdmin } from './features/people/RequireAdmin.tsx'
+import { RequireAdmin, RequireMember } from './features/people/RequireAdmin.tsx'
+import { ProfilePage } from './features/profile/ProfilePage.tsx'
+import { SearchPage } from './features/profile/SearchPage.tsx'
 import { ApiStatus } from './features/status/ApiStatus.tsx'
 import { adminRole, useMe } from './shared/api/me.ts'
 
@@ -27,6 +29,7 @@ function SiteNav() {
       <Link className="site-title" to="/">
         Family Tree
       </Link>
+      {me.data && me.data.roles.length > 0 && <Link to="/search">Search</Link>}
       {me.data?.roles.includes(adminRole) && <Link to="/people">People</Link>}
     </nav>
   )
@@ -42,6 +45,8 @@ export default function App() {
       <main className="container">
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/search" element={<RequireMember><SearchPage /></RequireMember>} />
+          <Route path="/family/:id" element={<RequireMember><ProfilePage /></RequireMember>} />
           <Route path="/people" element={<RequireAdmin><PeopleListPage /></RequireAdmin>} />
           <Route path="/people/new" element={<RequireAdmin><AddPersonPage /></RequireAdmin>} />
           <Route path="/people/:id" element={<RequireAdmin><PersonPage /></RequireAdmin>} />

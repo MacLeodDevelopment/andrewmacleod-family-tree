@@ -38,6 +38,14 @@ Content-Type: application/json
 GET {{api}}/api/v1/admin/people?skip=0&take=50
 Authorization: Bearer {{token}}
 
+### Search as a family member: every word must match part of a name
+GET {{api}}/api/v1/people/search?q=morag macleod
+Authorization: Bearer {{token}}
+
+### A person's profile as a family member: replace the ID
+GET {{api}}/api/v1/people/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{token}}
+
 ### Find people by name: every word must match part of a given name or surname
 GET {{api}}/api/v1/admin/people?search=morag macleod
 Authorization: Bearer {{token}}

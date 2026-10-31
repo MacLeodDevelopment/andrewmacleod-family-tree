@@ -339,6 +339,16 @@ Things worth knowing:
 - **Last save wins.** Editing has no check for changes made elsewhere since the page loaded. Only one person edits, so it's not needed yet, but it would be if that changes.
 - **No inline styles.** The Content Security Policy has `style-src 'self'`, so a `style={...}` prop would be blocked in production even though it works under `npm run dev`. Use classes in `styles.css`, and try changes with `npm run build` then `npm run preview`.
 
+### Search and profiles
+
+Everyone with a family role, not only admins, can search and read profiles: `/search` and `/family/:id` in the web app ([`features/profile`](web/src/features/profile)), `GET /api/v1/people/search?q=` and `GET /api/v1/people/{id}` in the API ([`ProfilesEndpoints.cs`](src/FamilyTree.Api/Profiles/ProfilesEndpoints.cs)). They're read-only. Being outside `/admin`, they rely on the deny-by-default fallback policy, which needs a family role.
+
+- **Separate response types, on purpose.** A profile has its own records, rather than reusing the admin ones. So what relatives can see is decided in one file, adding a field for the edit screens can't leak to them, and the privacy rules have one place to go. For example, a profile gives the date for reading but not `dateAsEntered`.
+- **One request per page.** A profile contains names and dates for everyone it mentions, rather than the browser fetching each person.
+- **Half-siblings are worked out, not stored.** Children in the person's own families are brothers and sisters. Children in a parent's *other* families are half-siblings. Step-siblings aren't listed.
+- **At most 20 results**, ordered by name, with the total so the page can say there are more. "Ordered" applies to those 20 only: which 20 is arbitrary, so type more of the name if someone's missing.
+- **⚠ Nothing is hidden yet.** Until the privacy rules are deployed, a viewer sees everything about everyone here, including living people. Don't invite relatives before then.
+
 ### Security headers on the web app
 
 Static Web Apps sends HTTP response headers that tell the browser what the page may and may not do. They're defined in [`web/build/staticWebApp.ts`](web/build/staticWebApp.ts).
@@ -602,9 +612,8 @@ az containerapp show -g rg-familytree -n familytree-api --query "properties.temp
 
 The app is being built in small iterations, one pull request each, so the PR history is the record of what changed and why. Coming next, roughly in order:
 
-- The rest of the editing UI that only Andrew can use: adding relatives.
-- Search, profiles and tree views for viewers.
 - A privacy rule: details of living people are hidden from viewers.
+- Tree views.
 - Maps.
 
 Relatives should not be invited until the privacy rule is deployed.
