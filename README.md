@@ -204,6 +204,26 @@ A **person** ([`Person.cs`](src/FamilyTree.Domain/Person.cs)) has a recorded **s
 - **Why there's no Application project yet.** The design has one for use cases, but with this little logic the endpoints can call the domain and EF Core directly. It'll arrive when something needs it, such as the privacy rules.
 - **Trying them:** there's no screen yet. [`FamilyTree.Api.http`](src/FamilyTree.Api/FamilyTree.Api.http) has ready-made requests, for VS Code's REST Client extension (`humao.rest-client`) or Visual Studio. It reads your token from `src/FamilyTree.Api/.env`, which git ignores, and explains how to copy one from the browser. Use fictional people for now: the privacy rules don't exist yet.
 
+### Dates and life events
+
+**Family history dates are rarely exact**, so they aren't stored as a `DateTime`. [`GenealogicalDate.cs`](src/FamilyTree.Domain/GenealogicalDate.cs) understands how records actually write them, and shows each in British style:
+
+| Entered | Shown |
+|---|---|
+| `12 Mar 1901`, `12/03/1901`, `1901-03-12` | 12 March 1901 |
+| `Mar 1901`, `1901` | March 1901, 1901 |
+| `abt 1870`, `c. 1870`, `circa 1870` | c. 1870 |
+| `est 1870`, `calc 1870` | est. 1870, calc. 1870 |
+| `bef Mar 1901`, `aft 1880` | before March 1901, after 1880 |
+| `bet 1870 and 1875`, `1870-75` | between 1870 and 1875 |
+| `Q2 1880` (a registration quarter) | between April 1880 and June 1880 |
+
+- **The text as entered is what's stored** (`Date` in `PersonEvents`), and it's parsed again on load. It's the source record: "abt 1870" and 1870 mean different things, and if the parser improves, old entries benefit.
+- **Ordering** uses a calculated `SortKey`, so "before 1880" sorts ahead of 1880 and "after 1880" behind it. It's worked out in memory, because a person only has a handful of events. A query across everyone, such as "the 1900s" on the map, will need a stored sort column; that's a migration when it's needed.
+- **What it doesn't understand yet:** dual-year dates such as `1750/51`, and non-English month names. They're refused with a message listing what works, not guessed at.
+
+**Events.** A person has a timeline of **life events** ([`Person.cs`](src/FamilyTree.Domain/Person.cs)), each with a type, an optional date and an optional place. For now the types are `Birth` and `Death`, and a place is free text; proper places come later. `POST /api/v1/admin/people/{id}/events` adds one, and a person's record returns them in date order, undated last, with `date` for display and `dateAsEntered` for editing. A person can only have one birth and one death. Conflicting sources will need handling when sources arrive.
+
 ### Errors and rate limiting in the API
 
 **Every error has the same shape.** The API returns errors as **problem details** (RFC 9457), a standard JSON body with content type `application/problem+json`:
@@ -506,7 +526,8 @@ az containerapp show -g rg-familytree -n familytree-api --query "properties.temp
 The app is being built in small iterations, one pull request each, so the PR history is the record of what changed and why. Coming next, roughly in order:
 
 - Hardening: security headers (including a Content Security Policy), rate limiting, consistent error responses.
-- Life events and fuzzy dates such as "abt 1870", then families and children.
+- Removing duplicate people, and warning before creating one.
+- Families and children.
 - An editing UI that only Andrew can use.
 - Search, profiles and tree views for viewers.
 - A privacy rule: details of living people are hidden from viewers.

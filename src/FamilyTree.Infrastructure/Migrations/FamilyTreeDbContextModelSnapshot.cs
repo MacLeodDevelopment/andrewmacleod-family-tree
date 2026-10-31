@@ -39,6 +39,37 @@ namespace FamilyTree.Infrastructure.Migrations
 
             modelBuilder.Entity("FamilyTree.Domain.Person", b =>
                 {
+                    b.OwnsMany("FamilyTree.Domain.LifeEvent", "Events", b1 =>
+                        {
+                            b1.Property<Guid>("Id")
+                                .HasColumnType("uniqueidentifier");
+
+                            b1.Property<string>("Date")
+                                .HasMaxLength(100)
+                                .HasColumnType("nvarchar(100)");
+
+                            b1.Property<Guid>("PersonId")
+                                .HasColumnType("uniqueidentifier");
+
+                            b1.Property<string>("Place")
+                                .HasMaxLength(200)
+                                .HasColumnType("nvarchar(200)");
+
+                            b1.Property<string>("Type")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("nvarchar(20)");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("PersonId");
+
+                            b1.ToTable("PersonEvents", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("PersonId");
+                        });
+
                     b.OwnsMany("FamilyTree.Domain.PersonName", "Names", b1 =>
                         {
                             b1.Property<Guid>("PersonId")
@@ -68,6 +99,8 @@ namespace FamilyTree.Infrastructure.Migrations
                             b1.WithOwner()
                                 .HasForeignKey("PersonId");
                         });
+
+                    b.Navigation("Events");
 
                     b.Navigation("Names");
                 });

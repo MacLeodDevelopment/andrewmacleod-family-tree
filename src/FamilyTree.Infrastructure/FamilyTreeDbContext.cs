@@ -31,6 +31,23 @@ public sealed class FamilyTreeDbContext(DbContextOptions<FamilyTreeDbContext> op
                 name.Property(n => n.Type).HasConversion<string>().HasMaxLength(20);
             });
             person.Navigation(p => p.Names).UsePropertyAccessMode(PropertyAccessMode.Field);
+
+            person.OwnsMany(p => p.Events, lifeEvent =>
+            {
+                lifeEvent.ToTable("PersonEvents");
+                lifeEvent.WithOwner().HasForeignKey("PersonId");
+                lifeEvent.HasKey(e => e.Id);
+                lifeEvent.Property(e => e.Id).ValueGeneratedNever();
+                lifeEvent.Property(e => e.Type).HasConversion<string>().HasMaxLength(20);
+                lifeEvent.Property(e => e.Place).HasMaxLength(LifeEvent.MaxPlaceLength);
+
+                // Stored as entered: the text is the record, and its meaning comes from parsing it.
+                lifeEvent.Property(e => e.Date)
+                    .HasMaxLength(GenealogicalDate.MaxLength)
+                    .HasConversion(date => date!.OriginalText, text => GenealogicalDate.Parse(text).Value);
+            });
+            person.Navigation(p => p.Events).UsePropertyAccessMode(PropertyAccessMode.Field);
+            person.Ignore(p => p.Timeline);
         });
     }
 }

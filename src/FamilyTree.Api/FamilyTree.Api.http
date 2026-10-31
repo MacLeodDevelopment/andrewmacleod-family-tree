@@ -35,6 +35,13 @@ Authorization: Bearer {{token}}
 GET {{api}}/api/v1/admin/people/01a191bb-71f7-7816-930b-25f3daecd1a9
 Authorization: Bearer {{token}}
 
+### Record a birth: replace the ID. Dates can be as fuzzy as the records: abt 1870, bef Mar 1901, 1870-75, Q2 1880
+POST {{api}}/api/v1/admin/people/00000000-0000-0000-0000-000000000000/events
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "type": "Birth", "date": "abt 1870", "place": "Innellan, Argyll" }
+
 ### Refused: a person needs a given name
 POST {{api}}/api/v1/admin/people
 Authorization: Bearer {{token}}

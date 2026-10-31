@@ -7,5 +7,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/FamilyTree.Api.Tests/FamilyTree.Api.Tests.csproj" />
+    <Project Path="tests/FamilyTree.Domain.Tests/FamilyTree.Domain.Tests.csproj" />
   </Folder>
 </Solution>
