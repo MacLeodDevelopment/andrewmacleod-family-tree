@@ -204,6 +204,31 @@ A **person** ([`Person.cs`](src/FamilyTree.Domain/Person.cs)) has a recorded **s
 - **Why there's no Application project yet.** The design has one for use cases, but with this little logic the endpoints can call the domain and EF Core directly. It'll arrive when something needs it, such as the privacy rules.
 - **Trying them:** there's no screen yet. [`FamilyTree.Api.http`](src/FamilyTree.Api/FamilyTree.Api.http) has ready-made requests, for VS Code's REST Client extension (`humao.rest-client`) or Visual Studio. It reads your token from `src/FamilyTree.Api/.env`, which git ignores, and explains how to copy one from the browser. Use fictional people for now: the privacy rules don't exist yet.
 
+### Dates and life events
+
+**Family history dates are rarely exact**, so they aren't stored as a `DateTime`. [`GenealogicalDate.cs`](src/FamilyTree.Domain/GenealogicalDate.cs) understands how records actually write them, and shows each in British style:
+
+| Entered | Shown |
+|---|---|
+| `12 Mar 1901`, `12/03/1901`, `1901-03-12` | 12 March 1901 |
+| `Mar 1901`, `1901` | March 1901, 1901 |
+| `abt 1870`, `c. 1870`, `circa 1870` | c. 1870 |
+| `est 1870`, `calc 1870` | est. 1870, calc. 1870 |
+| `bef Mar 1901`, `aft 1880` | before March 1901, after 1880 |
+| `bet 1870 and 1875`, `1870-75` | between 1870 and 1875 |
+| `Q2 1880` (a registration quarter) | between April 1880 and June 1880 |
+| `1650/51`, `11 Feb 1731/2` (dual years) | 1650/51, 11 February 1731/32 |
+
+- **The text as entered is what's stored** (`Date` in `PersonEvents`), and it's parsed again on load. It's the source record: "abt 1870" and 1870 mean different things, and if the parser improves, old entries benefit.
+- **Ordering** uses a calculated `SortKey`, so "before 1880" sorts ahead of 1880 and "after 1880" behind it. It's worked out in memory, because a person only has a handful of events. A query across everyone, such as "the 1900s" on the map, will need a stored sort column; that's a migration when it's needed.
+- **Dates before 1752 follow the rules of the time.** The column is text, so the database has no earliest date (SQL Server's old `datetime` type stops at 1753), and the tree can go back as far as the records do.
+  - **Dual years.** Until 1752 the legal year in England, Wales and Ireland began on 25 March, so a date we'd call February 1651 was still 1650 then, and was often written `1650/51`. Scotland moved its new year to 1 January in 1600. These are accepted up to 1752, for January to March when a month is given, and the later year must follow the first. They sort by the later year, which is the year by today's reckoning.
+  - **Leap years.** Britain used the Julian calendar until 1752, where every fourth year was a leap year, so 29 February 1700 is valid. After 1752 the modern rules apply, so 29 February 1800 is refused.
+  - **The missing days.** The 11 days dropped in September 1752 are accepted, because other countries changed calendar at other times.
+- **What it doesn't understand yet:** years before 1000, because years are four digits, and non-English month names. They're refused with a message listing what works, not guessed at.
+
+**Events.** A person has a timeline of **life events** ([`Person.cs`](src/FamilyTree.Domain/Person.cs)), each with a type, an optional date and an optional place. For now the types are `Birth` and `Death`, and a place is free text; proper places come later. `POST /api/v1/admin/people/{id}/events` adds one, and a person's record returns them in date order, undated last, with `date` for display and `dateAsEntered` for editing. A person can only have one birth and one death. Conflicting sources will need handling when sources arrive.
+
 ### Errors and rate limiting in the API
 
 **Every error has the same shape.** The API returns errors as **problem details** (RFC 9457), a standard JSON body with content type `application/problem+json`:
@@ -506,7 +531,8 @@ az containerapp show -g rg-familytree -n familytree-api --query "properties.temp
 The app is being built in small iterations, one pull request each, so the PR history is the record of what changed and why. Coming next, roughly in order:
 
 - Hardening: security headers (including a Content Security Policy), rate limiting, consistent error responses.
-- Life events and fuzzy dates such as "abt 1870", then families and children.
+- Removing duplicate people, and warning before creating one.
+- Families and children.
 - An editing UI that only Andrew can use.
 - Search, profiles and tree views for viewers.
 - A privacy rule: details of living people are hidden from viewers.

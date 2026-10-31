@@ -17,7 +17,9 @@ public class PeopleTests(ApiFactory factory, SqlServerContainer sqlServer) : ICl
 
     private sealed record Name(string GivenName, string? Surname, string Type);
 
-    private sealed record PersonResponse(Guid Id, string Sex, Name[] Names);
+    private sealed record Event(string Type, string? Date, string? DateAsEntered, string? Place);
+
+    private sealed record PersonResponse(Guid Id, string Sex, Name[] Names, Event[] Events);
 
     private sealed record Page(PersonResponse[] Items, int Total);
 
@@ -148,6 +150,90 @@ public class PeopleTests(ApiFactory factory, SqlServerContainer sqlServer) : ICl
         Assert.Equal(HttpStatusCode.Forbidden, add.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, list.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, read.StatusCode);
+    }
+
+    /// <summary>Adds someone to attach events to, and returns the address of their record.</summary>
+    private static async Task<string> AddPersonAsync(HttpClient client)
+    {
+        var created = await client.PostAsJsonAsync(People, new { names = new[] { new { givenName = "Ewan" } } }, Cancellation);
+        return created.Headers.Location!.ToString();
+    }
+
+    [Fact]
+    public async Task An_admin_can_record_a_birth_with_a_fuzzy_date_and_a_place()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = await AddPersonAsync(client);
+
+        var added = await client.PostAsJsonAsync($"{person}/events",
+            new { type = "Birth", date = "abt 1870", place = "Innellan, Argyll" }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.Created, added.StatusCode);
+        var saved = await client.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+        Assert.Equal(new Event("Birth", "c. 1870", "abt 1870", "Innellan, Argyll"), Assert.Single(saved!.Events));
+    }
+
+    [Fact]
+    public async Task Events_come_back_in_date_order_with_undated_ones_last()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = await AddPersonAsync(client);
+
+        await client.PostAsJsonAsync($"{person}/events", new { type = "Death", date = "bef 1901" }, Cancellation);
+        var birth = await client.PostAsJsonAsync($"{person}/events", new { type = "Birth", date = "1 May 1850" }, Cancellation);
+        var saved = await client.GetFromJsonAsync<PersonResponse>(person, Cancellation);
+        var other = await AddPersonAsync(client);
+        await client.PostAsJsonAsync($"{other}/events", new { type = "Death" }, Cancellation);
+        await client.PostAsJsonAsync($"{other}/events", new { type = "Birth", date = "1850" }, Cancellation);
+        var undatedLast = await client.GetFromJsonAsync<PersonResponse>(other, Cancellation);
+
+        Assert.Equal(HttpStatusCode.Created, birth.StatusCode);
+        Assert.Equal(["Birth", "Death"], saved!.Events.Select(e => e.Type));
+        Assert.Equal(["Birth", "Death"], undatedLast!.Events.Select(e => e.Type));
+        Assert.Null(undatedLast.Events[1].Date);
+    }
+
+    [Fact]
+    public async Task A_date_that_makes_no_sense_is_refused_with_a_reason()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = await AddPersonAsync(client);
+
+        var response = await client.PostAsJsonAsync($"{person}/events", new { type = "Birth", date = "31 Feb 1900" }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<ValidationProblemDetails>(Cancellation);
+        Assert.Contains("date", problem!.Errors.Keys);
+    }
+
+    [Fact]
+    public async Task A_person_can_only_be_born_once()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = await AddPersonAsync(client);
+
+        await client.PostAsJsonAsync($"{person}/events", new { type = "Birth", date = "1870" }, Cancellation);
+        var second = await client.PostAsJsonAsync($"{person}/events", new { type = "Birth", date = "1871" }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.BadRequest, second.StatusCode);
+    }
+
+    [Fact]
+    public async Task Events_cannot_be_added_to_someone_who_does_not_exist()
+    {
+        var response = await Api().CreateClientFor(Admin).PostAsJsonAsync(
+            $"{People}/{Guid.NewGuid()}/events", new { type = "Birth" }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Viewers_cannot_add_events()
+    {
+        var response = await Api().CreateClientFor(Viewer).PostAsJsonAsync(
+            $"{People}/{Guid.NewGuid()}/events", new { type = "Birth" }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
