@@ -2,12 +2,14 @@ using FamilyTree.Infrastructure;
 using Microsoft.Data.SqlClient;
 using Testcontainers.MsSql;
 
+[assembly: AssemblyFixture(typeof(FamilyTree.Api.Tests.SqlServerContainer))]
+
 namespace FamilyTree.Api.Tests;
 
 /// <summary>
 /// A real SQL Server in Docker for the tests that need a database (Testcontainers),
-/// migrated by the same code the deploy pipeline runs. Started once per test class
-/// that uses it, and removed afterwards.
+/// migrated by the same code the deploy pipeline runs. Started once per test run,
+/// shared by every test class that asks for it, and removed afterwards.
 /// </summary>
 public sealed class SqlServerContainer : IAsyncLifetime
 {
