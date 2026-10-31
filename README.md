@@ -347,7 +347,36 @@ Everyone with a family role, not only admins, can search and read profiles: `/se
 - **One request per page.** A profile contains names and dates for everyone it mentions, rather than the browser fetching each person.
 - **Half-siblings are worked out, not stored.** Children in the person's own families are brothers and sisters. Children in a parent's *other* families are half-siblings. Step-siblings aren't listed.
 - **At most 20 results**, ordered by name, with the total so the page can say there are more. "Ordered" applies to those 20 only: which 20 is arbitrary, so type more of the name if someone's missing.
-- **⚠ Nothing is hidden yet.** Until the privacy rules are deployed, a viewer sees everything about everyone here, including living people. Don't invite relatives before then.
+
+### Privacy of living people
+
+Relatives can see that a living person exists, what they're called and how they're related, but not when or where anything happened to them. Admins see everything.
+
+**Who counts as living** ([`LivingStatus.cs`](src/FamilyTree.Domain/LivingStatus.cs)): everyone, unless they have a recorded death or were born too long ago to be alive. Every doubt falls on the side of "living", because wrongly hiding someone from long ago is a nuisance, but wrongly showing a living relative's details can't be undone.
+
+| Recorded | Treated as |
+|---|---|
+| A death, even with no date | Not living |
+| No birth date | Living |
+| Born in the last 110 years | Living |
+| `abt`, `est` or `calc` | 10 years later than it says, so `abt 1906` is living in 2026 |
+| `bef 1915` | 1915 at the latest |
+| `bet 1900 and 1916` | 1916, the end of the range |
+| `aft 1850` | Living, however long ago: "after" has no upper limit |
+
+**What's hidden** ([`ProfilesEndpoints.cs`](src/FamilyTree.Api/Profiles/ProfilesEndpoints.cs)):
+
+- A living person's events, and their birth and death dates wherever they appear: search results and everyone else's profiles as well as their own.
+- A marriage or divorce, if **either** partner may be living, because it would reveal when and where a living person married. A partner who is unknown doesn't count.
+- A person's recorded sex isn't in a profile at all. Nothing shows it, so it isn't sent.
+
+Names and relationships stay visible, including the type of a partnership and whether a child is adopted. The API removes the details, so they never reach the browser. `isPrivate` on a profile only lets the page explain why they're missing.
+
+The redaction happens in one place, in the viewer endpoints. The `/admin` endpoints return everything and are admin-only. **Anything new that a viewer can read must go through the same check.**
+
+Why this isn't in an Application project yet: the design planned one for the privacy rules, but the rule is a small function in the domain and it's used by one file. Add a project when a second consumer needs it.
+
+Not yet: a relative seeing their own record in full, and an admin marking someone as dead when no date is known. Until then, some people from long ago are hidden simply because they've no dates recorded, so adding a birth or death reveals them.
 
 ### Security headers on the web app
 
@@ -612,7 +641,7 @@ az containerapp show -g rg-familytree -n familytree-api --query "properties.temp
 
 The app is being built in small iterations, one pull request each, so the PR history is the record of what changed and why. Coming next, roughly in order:
 
-- A privacy rule: details of living people are hidden from viewers.
+- Linking a relative to their own record, so they see it in full.
 - Tree views.
 - Maps.
 

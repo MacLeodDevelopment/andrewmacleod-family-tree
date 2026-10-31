@@ -30,7 +30,7 @@ public class ProfilesTests(ApiFactory factory, SqlServerContainer sqlServer) : I
 
     private sealed record Partnership(Summary? Partner, string Type, Event[] Events, Child[] Children);
 
-    private sealed record Profile(Guid Id, string Sex, Event[] Events, Parent[] Parents, Sibling[] Siblings, Partnership[] Partnerships);
+    private sealed record Profile(Guid Id, bool IsPrivate, Event[] Events, Parent[] Parents, Sibling[] Siblings, Partnership[] Partnerships);
 
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
@@ -127,6 +127,7 @@ public class ProfilesTests(ApiFactory factory, SqlServerContainer sqlServer) : I
             await PersonAsync(admin), await PersonAsync(admin), await PersonAsync(admin),
             await PersonAsync(admin), await PersonAsync(admin), await PersonAsync(admin));
         await AddEventAsync(admin, $"{AdminPeople}/{person}", "Birth", "abt 1870", "Innellan");
+        await AddEventAsync(admin, $"{AdminPeople}/{wife}", "Birth", "1872");
         await FamilyAsync(admin, mother, father, "Marriage", (person, "Biological", "Adopted"), (sister, "Biological", "Biological"));
         var marriage = await FamilyAsync(admin, wife, person, "Marriage", (son, "Biological", "Step"));
         await AddEventAsync(admin, $"{Families}/{marriage}", "Marriage", "1895", "Dunoon");
@@ -219,6 +220,148 @@ public class ProfilesTests(ApiFactory factory, SqlServerContainer sqlServer) : I
         var body = await api.CreateClientFor(Viewer).GetStringAsync($"{People}/{person}", Cancellation);
 
         Assert.DoesNotContain("abt 1870", body);
+    }
+
+    private static string Recent => (DateTime.UtcNow.Year - 40).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Someone who may be living, with details that must never reach a viewer.</summary>
+    private static async Task<Guid> LivingPersonAsync(HttpClient admin, string? givenName = null)
+    {
+        var person = await PersonAsync(admin, givenName);
+        await AddEventAsync(admin, $"{AdminPeople}/{person}", "Birth", $"3 Mar {Recent}", "Secretplace");
+        return person;
+    }
+
+    [Fact]
+    public async Task A_viewer_sees_a_living_persons_name_and_relatives_but_not_their_details()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var (person, parent) = (await LivingPersonAsync(admin), await PersonAsync(admin));
+        await FamilyAsync(admin, parent, null, "None", (person, "Biological", "Unknown"));
+
+        var profile = await ProfileAsync(api.CreateClientFor(Viewer), person);
+        var body = await api.CreateClientFor(Viewer).GetStringAsync($"{People}/{person}", Cancellation);
+
+        Assert.True(profile!.IsPrivate);
+        Assert.Empty(profile.Events);
+        Assert.Equal(parent, profile.Parents[0].Person!.Id);
+        Assert.DoesNotContain("Secretplace", body);
+        Assert.DoesNotContain($"3 March {Recent}", body);
+    }
+
+    [Fact]
+    public async Task Someone_with_no_dates_at_all_is_kept_private()
+    {
+        var api = Api();
+        var person = await PersonAsync(api.CreateClientFor(Admin));
+
+        var profile = await ProfileAsync(api.CreateClientFor(Viewer), person);
+
+        Assert.True(profile!.IsPrivate);
+    }
+
+    [Fact]
+    public async Task A_viewer_sees_the_details_of_someone_who_has_died()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var person = await LivingPersonAsync(admin);
+        await AddEventAsync(admin, $"{AdminPeople}/{person}", "Death", "2020");
+
+        var profile = await ProfileAsync(api.CreateClientFor(Viewer), person);
+
+        Assert.False(profile!.IsPrivate);
+        Assert.Equal(["Birth", "Death"], profile.Events.Select(e => e.Type));
+    }
+
+    [Fact]
+    public async Task An_admin_sees_a_living_persons_details()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var person = await LivingPersonAsync(admin);
+
+        var profile = await ProfileAsync(admin, person);
+
+        Assert.False(profile!.IsPrivate);
+        Assert.Equal("Secretplace", Assert.Single(profile.Events).Place);
+    }
+
+    [Fact]
+    public async Task Searching_does_not_reveal_a_living_persons_dates()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var word = $"Findme{Guid.NewGuid():N}";
+        var person = await LivingPersonAsync(admin, word);
+
+        var asViewer = await api.CreateClientFor(Viewer).GetFromJsonAsync<Results>($"{People}/search?q={word}", Cancellation);
+        var asAdmin = await admin.GetFromJsonAsync<Results>($"{People}/search?q={word}", Cancellation);
+
+        Assert.Equal(new Summary(person, word, null, null), Assert.Single(asViewer!.Items));
+        Assert.NotNull(Assert.Single(asAdmin!.Items).Born);
+    }
+
+    [Fact]
+    public async Task A_living_relatives_dates_are_hidden_on_someone_elses_profile()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var (ancestor, child, partner, sibling, grandchild) = (
+            await PersonAsync(admin), await LivingPersonAsync(admin), await LivingPersonAsync(admin),
+            await LivingPersonAsync(admin), await LivingPersonAsync(admin));
+        await AddEventAsync(admin, $"{AdminPeople}/{ancestor}", "Birth", "1900");
+        await AddEventAsync(admin, $"{AdminPeople}/{ancestor}", "Death", "1980");
+        await FamilyAsync(admin, ancestor, partner, "Marriage", (child, "Biological", "Biological"), (grandchild, "Biological", "Biological"));
+        var parentOfAncestor = await PersonAsync(admin);
+        await FamilyAsync(admin, parentOfAncestor, null, "None", (ancestor, "Biological", "Unknown"), (sibling, "Biological", "Unknown"));
+
+        var viewer = api.CreateClientFor(Viewer);
+        var ancestorBody = await viewer.GetStringAsync($"{People}/{ancestor}", Cancellation);
+        var profile = await ProfileAsync(viewer, ancestor);
+
+        Assert.DoesNotContain($"3 March {Recent}", ancestorBody);
+        Assert.Contains("\"born\":\"1900\"", await viewer.GetStringAsync($"{People}/{child}", Cancellation));
+        Assert.Equal(partner, profile!.Partnerships[0].Partner!.Id);
+        Assert.Null(profile.Partnerships[0].Partner!.Born);
+    }
+
+    [Fact]
+    public async Task A_marriage_is_hidden_if_either_partner_may_be_living()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var (deceased, living) = (await PersonAsync(admin), await LivingPersonAsync(admin));
+        await AddEventAsync(admin, $"{AdminPeople}/{deceased}", "Birth", "1900");
+        await AddEventAsync(admin, $"{AdminPeople}/{deceased}", "Death", "1980");
+        var family = await FamilyAsync(admin, deceased, living, "Marriage");
+        await AddEventAsync(admin, $"{Families}/{family}", "Marriage", "1975", "Secretchurch");
+
+        var viewer = api.CreateClientFor(Viewer);
+        var fromDeceased = await viewer.GetStringAsync($"{People}/{deceased}", Cancellation);
+        var fromLiving = await viewer.GetStringAsync($"{People}/{living}", Cancellation);
+        var asAdmin = await admin.GetStringAsync($"{People}/{deceased}", Cancellation);
+
+        Assert.DoesNotContain("Secretchurch", fromDeceased);
+        Assert.DoesNotContain("Secretchurch", fromLiving);
+        Assert.Contains("Secretchurch", asAdmin);
+    }
+
+    [Fact]
+    public async Task A_marriage_is_shown_when_both_partners_have_died()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var (first, second) = (await PersonAsync(admin), await PersonAsync(admin));
+        await AddEventAsync(admin, $"{AdminPeople}/{first}", "Death", "1980");
+        await AddEventAsync(admin, $"{AdminPeople}/{second}", "Death", "1985");
+        var family = await FamilyAsync(admin, first, second, "Marriage");
+        await AddEventAsync(admin, $"{Families}/{family}", "Marriage", "1950", "Dunoon");
+
+        var profile = await ProfileAsync(api.CreateClientFor(Viewer), first);
+
+        Assert.Equal("Dunoon", Assert.Single(Assert.Single(profile!.Partnerships).Events).Place);
     }
 
     [Fact]

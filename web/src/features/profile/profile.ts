@@ -1,5 +1,5 @@
 import type { ParentRelationship, PartnershipType } from '../people/families.ts'
-import type { NameType, Sex } from '../people/people.ts'
+import type { NameType } from '../people/people.ts'
 
 /** Enough to recognise someone and tell them from others with the same name. */
 export interface PersonSummary {
@@ -30,7 +30,8 @@ export interface ProfilePartnership {
 
 export interface Profile {
   id: string
-  sex: Sex
+  /** Their details are hidden because they may be living. */
+  isPrivate: boolean
   names: { givenName: string; surname: string | null; type: NameType }[]
   events: ProfileEvent[]
   /** One row for each place in a family, so a parent nobody knows has a null person. */
