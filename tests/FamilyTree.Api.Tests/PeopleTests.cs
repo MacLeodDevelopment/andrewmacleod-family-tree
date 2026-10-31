@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Data.SqlClient;
 
 namespace FamilyTree.Api.Tests;
 
@@ -155,8 +156,121 @@ public class PeopleTests(ApiFactory factory, SqlServerContainer sqlServer) : ICl
     /// <summary>Adds someone to attach events to, and returns the address of their record.</summary>
     private static async Task<string> AddPersonAsync(HttpClient client)
     {
-        var created = await client.PostAsJsonAsync(People, new { names = new[] { new { givenName = "Ewan" } } }, Cancellation);
+        var created = await client.PostAsJsonAsync(People, new { names = new[] { new { givenName = UniqueName() } } }, Cancellation);
         return created.Headers.Location!.ToString();
+    }
+
+    /// <summary>The tests share a database, and a repeated name would count as a possible duplicate.</summary>
+    private static string UniqueName() => $"Ewan {Guid.NewGuid():N}";
+
+    [Fact]
+    public async Task Adding_someone_who_may_already_exist_is_stopped_and_says_who_matches()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = new { names = new[] { new { givenName = UniqueName(), surname = "MacLeod" } } };
+        var first = await client.PostAsJsonAsync(People, person, Cancellation);
+        var existing = await first.Content.ReadFromJsonAsync<PersonResponse>(Cancellation);
+
+        var second = await client.PostAsJsonAsync(People, person, Cancellation);
+
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+        Assert.Equal(ProblemJson, second.Content.Headers.ContentType?.MediaType);
+        Assert.Contains(existing!.Id.ToString(), await second.Content.ReadAsStringAsync(Cancellation));
+    }
+
+    [Fact]
+    public async Task Matching_a_name_ignores_case_and_stray_spaces()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var name = UniqueName();
+        await client.PostAsJsonAsync(People, new { names = new[] { new { givenName = name, surname = "MacLeod" } } }, Cancellation);
+
+        var second = await client.PostAsJsonAsync(People,
+            new { names = new[] { new { givenName = $"  {name.ToUpperInvariant()} ", surname = "macleod" } } }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+    }
+
+    [Fact]
+    public async Task Someone_who_shares_a_name_can_still_be_added_on_purpose()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = new { names = new[] { new { givenName = UniqueName(), surname = "MacLeod" } } };
+        await client.PostAsJsonAsync(People, person, Cancellation);
+
+        var second = await client.PostAsJsonAsync($"{People}?allowDuplicate=true", person, Cancellation);
+
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+    }
+
+    [Fact]
+    public async Task People_with_the_same_given_name_but_a_different_surname_are_not_duplicates()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var name = UniqueName();
+        await client.PostAsJsonAsync(People, new { names = new[] { new { givenName = name, surname = "MacLeod" } } }, Cancellation);
+
+        var second = await client.PostAsJsonAsync(People, new { names = new[] { new { givenName = name, surname = "Campbell" } } }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+    }
+
+    [Fact]
+    public async Task Someone_known_by_a_married_name_is_matched_on_that_too()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var name = UniqueName();
+        await client.PostAsJsonAsync(People, new
+        {
+            names = new[]
+            {
+                new { givenName = name, surname = "Campbell", type = "Birth" },
+                new { givenName = name, surname = "MacLeod", type = "Married" },
+            },
+        }, Cancellation);
+
+        var second = await client.PostAsJsonAsync(People, new { names = new[] { new { givenName = name, surname = "MacLeod" } } }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_admin_can_delete_a_person_with_their_names_and_events()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var person = await AddPersonAsync(client);
+        await client.PostAsJsonAsync($"{person}/events", new { type = "Birth", date = "1870" }, Cancellation);
+
+        var deleted = await client.DeleteAsync(person, Cancellation);
+
+        Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(person, Cancellation)).StatusCode);
+        await using var connection = new SqlConnection(sqlServer.ConnectionString);
+        await connection.OpenAsync(Cancellation);
+        await using var leftovers = connection.CreateCommand();
+        leftovers.CommandText = "SELECT (SELECT COUNT(*) FROM PersonNames WHERE PersonId = @id) + (SELECT COUNT(*) FROM PersonEvents WHERE PersonId = @id)";
+        leftovers.Parameters.AddWithValue("@id", Guid.Parse(person.Split('/')[^1]));
+        Assert.Equal(0, await leftovers.ExecuteScalarAsync(Cancellation));
+    }
+
+    [Fact]
+    public async Task Deleting_someone_who_does_not_exist_gets_not_found()
+    {
+        var response = await Api().CreateClientFor(Admin).DeleteAsync($"{People}/{Guid.NewGuid()}", Cancellation);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Viewers_cannot_delete_people()
+    {
+        var api = Api();
+        var person = await AddPersonAsync(api.CreateClientFor(Admin));
+
+        var response = await api.CreateClientFor(Viewer).DeleteAsync(person, Cancellation);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await api.CreateClientFor(Admin).GetAsync(person, Cancellation)).StatusCode);
     }
 
     [Fact]

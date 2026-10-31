@@ -35,13 +35,14 @@ public static class PeopleEndpoints
         people.MapPost("/", CreateAsync);
         people.MapGet("/{id:guid}", GetAsync).WithName(nameof(GetAsync));
         people.MapGet("/", ListAsync);
+        people.MapDelete("/{id:guid}", DeleteAsync);
         people.MapPost("/{id:guid}/events", AddEventAsync);
 
         return group;
     }
 
     private static async Task<IResult> CreateAsync(
-        CreatePersonRequest request, FamilyTreeDbContext database, CancellationToken cancellationToken)
+        CreatePersonRequest request, FamilyTreeDbContext database, CancellationToken cancellationToken, bool allowDuplicate = false)
     {
         var names = (request.Names ?? []).Select(name => new NameDetails(name.GivenName, name.Surname, name.Type)).ToList();
         var result = Person.Create(request.Sex, names);
@@ -50,10 +51,51 @@ public static class PeopleEndpoints
             return Results.ValidationProblem(result.Errors.ToDictionary());
         }
 
+        if (!allowDuplicate && await FindSameNameAsync(result.Value, database, cancellationToken) is { Count: > 0 } matches)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "This may be a duplicate",
+                detail: "Someone with this name already exists. If this is a different person, send the request again with ?allowDuplicate=true.",
+                extensions: new Dictionary<string, object?> { ["duplicates"] = matches });
+        }
+
         database.People.Add(result.Value);
         await database.SaveChangesAsync(cancellationToken);
 
         return Results.CreatedAtRoute(nameof(GetAsync), new { id = result.Value.Id }, ToResponse(result.Value));
+    }
+
+    /// <summary>
+    /// People whose names include this person's main name. It's a prompt, not a rule: families
+    /// reuse names, so two people with the same name are often different people. That's also
+    /// why the database has no unique constraint, and two identical requests sent at the same
+    /// moment could both succeed.
+    /// </summary>
+    private static async Task<List<Guid>> FindSameNameAsync(
+        Person person, FamilyTreeDbContext database, CancellationToken cancellationToken)
+    {
+        var (givenName, surname) = (person.Names[0].GivenName, person.Names[0].Surname);
+
+        return await database.People
+            .Where(existing => existing.Names.Any(name => name.GivenName == givenName && name.Surname == surname))
+            .Select(existing => existing.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>Permanently removes a person, with their names and events.</summary>
+    private static async Task<IResult> DeleteAsync(Guid id, FamilyTreeDbContext database, CancellationToken cancellationToken)
+    {
+        var person = await database.People.SingleOrDefaultAsync(p => p.Id == id, cancellationToken);
+        if (person is null)
+        {
+            return Results.NotFound();
+        }
+
+        database.People.Remove(person);
+        await database.SaveChangesAsync(cancellationToken);
+
+        return Results.NoContent();
     }
 
     private static async Task<IResult> GetAsync(Guid id, FamilyTreeDbContext database, CancellationToken cancellationToken)
