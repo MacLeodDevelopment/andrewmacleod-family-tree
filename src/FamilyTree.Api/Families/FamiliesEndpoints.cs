@@ -23,9 +23,21 @@ public static class FamiliesEndpoints
 
     public sealed record NamePartnerRequest(Guid PartnerId, ParentRelationship Relationship = ParentRelationship.Unknown);
 
+    public sealed record AddFamilyEventRequest(FamilyEventType Type, string? Date, string? Place);
+
+    public sealed record ChangeFamilyEventRequest(string? Date, string? Place);
+
     public sealed record ChildResponse(Guid ChildId, ParentRelationship Partner1Relationship, ParentRelationship Partner2Relationship);
 
-    public sealed record FamilyResponse(Guid Id, Guid? Partner1Id, Guid? Partner2Id, PartnershipType Type, IReadOnlyList<ChildResponse> Children);
+    public sealed record FamilyEventResponse(Guid Id, FamilyEventType Type, string? Date, string? DateAsEntered, string? Place);
+
+    public sealed record FamilyResponse(
+        Guid Id,
+        Guid? Partner1Id,
+        Guid? Partner2Id,
+        PartnershipType Type,
+        IReadOnlyList<ChildResponse> Children,
+        IReadOnlyList<FamilyEventResponse> Events);
 
     /// <summary>A person's families, with everyone in them, so a screen can name them without more requests.</summary>
     public sealed record PersonFamiliesResponse(
@@ -46,6 +58,9 @@ public static class FamiliesEndpoints
         admin.MapDelete("/families/{id:guid}/partners/{partnerId:guid}", RemovePartnerAsync);
         admin.MapPost("/families/{id:guid}/children", AddChildAsync);
         admin.MapDelete("/families/{id:guid}/children/{childId:guid}", RemoveChildAsync);
+        admin.MapPost("/families/{id:guid}/events", AddEventAsync);
+        admin.MapPut("/families/{id:guid}/events/{eventId:guid}", ChangeEventAsync);
+        admin.MapDelete("/families/{id:guid}/events/{eventId:guid}", RemoveEventAsync);
         admin.MapGet("/people/{id:guid}/families", ForPersonAsync);
 
         return group;
@@ -234,6 +249,61 @@ public static class FamiliesEndpoints
         return Results.NoContent();
     }
 
+    private static async Task<IResult> AddEventAsync(
+        Guid id, AddFamilyEventRequest request, FamilyTreeDbContext database, CancellationToken cancellationToken)
+    {
+        var family = await database.Families.SingleOrDefaultAsync(f => f.Id == id, cancellationToken);
+        if (family is null)
+        {
+            return Results.NotFound();
+        }
+
+        var result = family.AddEvent(request.Type, request.Date, request.Place);
+        if (!result.IsSuccess)
+        {
+            return Results.ValidationProblem(result.Errors.ToDictionary());
+        }
+
+        await database.SaveChangesAsync(cancellationToken);
+
+        return Created(family);
+    }
+
+    private static async Task<IResult> ChangeEventAsync(
+        Guid id, Guid eventId, ChangeFamilyEventRequest request, FamilyTreeDbContext database, CancellationToken cancellationToken)
+    {
+        var family = await database.Families.SingleOrDefaultAsync(f => f.Id == id, cancellationToken);
+        if (family is null || family.Events.All(familyEvent => familyEvent.Id != eventId))
+        {
+            return Results.NotFound();
+        }
+
+        var result = family.ChangeEvent(eventId, request.Date, request.Place);
+        if (!result.IsSuccess)
+        {
+            return Results.ValidationProblem(result.Errors.ToDictionary());
+        }
+
+        await database.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(ToResponse(family));
+    }
+
+    private static async Task<IResult> RemoveEventAsync(
+        Guid id, Guid eventId, FamilyTreeDbContext database, CancellationToken cancellationToken)
+    {
+        var family = await database.Families.SingleOrDefaultAsync(f => f.Id == id, cancellationToken);
+        if (family is null || family.Events.All(familyEvent => familyEvent.Id != eventId))
+        {
+            return Results.NotFound();
+        }
+
+        family.RemoveEvent(eventId);
+        await database.SaveChangesAsync(cancellationToken);
+
+        return Results.NoContent();
+    }
+
     private static async Task<IResult> ForPersonAsync(Guid id, FamilyTreeDbContext database, CancellationToken cancellationToken)
     {
         if (!await database.People.AnyAsync(person => person.Id == id, cancellationToken))
@@ -266,5 +336,9 @@ public static class FamiliesEndpoints
         family.Type,
         family.Children.OrderBy(child => child.Position)
             .Select(child => new ChildResponse(child.ChildId, child.Partner1Relationship, child.Partner2Relationship))
+            .ToList(),
+        family.Timeline
+            .Select(familyEvent => new FamilyEventResponse(
+                familyEvent.Id, familyEvent.Type, familyEvent.Date?.Display, familyEvent.Date?.OriginalText, familyEvent.Place))
             .ToList());
 }

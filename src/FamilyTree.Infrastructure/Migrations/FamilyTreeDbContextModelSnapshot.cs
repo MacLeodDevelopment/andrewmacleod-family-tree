@@ -111,7 +111,40 @@ namespace FamilyTree.Infrastructure.Migrations
                                 .HasForeignKey("FamilyId");
                         });
 
+                    b.OwnsMany("FamilyTree.Domain.FamilyEvent", "Events", b1 =>
+                        {
+                            b1.Property<Guid>("Id")
+                                .HasColumnType("uniqueidentifier");
+
+                            b1.Property<string>("Date")
+                                .HasMaxLength(100)
+                                .HasColumnType("nvarchar(100)");
+
+                            b1.Property<Guid>("FamilyId")
+                                .HasColumnType("uniqueidentifier");
+
+                            b1.Property<string>("Place")
+                                .HasMaxLength(200)
+                                .HasColumnType("nvarchar(200)");
+
+                            b1.Property<string>("Type")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("nvarchar(20)");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("FamilyId");
+
+                            b1.ToTable("FamilyEvents", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("FamilyId");
+                        });
+
                     b.Navigation("Children");
+
+                    b.Navigation("Events");
                 });
 
             modelBuilder.Entity("FamilyTree.Domain.Person", b =>

@@ -252,6 +252,7 @@ A **person** ([`Person.cs`](src/FamilyTree.Domain/Person.cs)) has a recorded **s
 - A family needs at least one known partner. Someone with no known parents simply has no family recorded. If both of a set of siblings' parents are unknown, nothing links them yet.
 - Nobody can be their own partner or parent, or the same child twice in a family.
 - **Nobody can become their own ancestor.** Adding a child walks the tree first ([`FamilyGraph`](src/FamilyTree.Domain/Family.cs)), through every kind of parent link, and refuses the link if it would loop. The whole tree is loaded for this, which is fine for thousands of people and keeps it plain C# instead of recursive SQL.
+- **A family records one marriage and one divorce.** Dates and places follow the same rules as [life events](#dates-and-life-events), and both partners see them. A couple who divorce and marry each other again are recorded as a second family, so each child stays with the right partnership.
 - **Someone in a family can't be deleted.** The API replies 409, and foreign keys back that up. Take them out of their families first, so a delete can't quietly tear a hole in the tree. Deleting a family removes its child links but never the people.
 
 **The endpoints** ([`FamiliesEndpoints.cs`](src/FamilyTree.Api/Families/FamiliesEndpoints.cs)) are admin-only, like people:
@@ -266,6 +267,8 @@ A **person** ([`Person.cs`](src/FamilyTree.Domain/Person.cs)) has a recorded **s
 | `DELETE /api/v1/admin/families/{id}/partners/{partnerId}` | Makes a partner unknown again and resets the children's relationship to them. The family goes too if it has no children. Refused for the only known parent of children. |
 | `POST /api/v1/admin/families/{id}/children` | Adds a child, with their relationship to each parent. |
 | `DELETE /api/v1/admin/families/{id}/children/{childId}` | Takes a child out of a family. |
+| `POST /api/v1/admin/families/{id}/events` | Records a `Marriage` or `Divorce`, with an optional date and place. |
+| `PUT` and `DELETE /api/v1/admin/families/{id}/events/{eventId}` | Corrects an event's date and place, or removes it. |
 | `GET /api/v1/admin/people/{id}/families` | A person's families, as a child and as a partner, with everyone in them under `people`, so a screen can name them with one request. |
 
 **Not yet:** naming a partner later, once an unknown father is found (for now, delete and re-create the family), and marriage dates and places. Both fit naturally with the editing screens.
@@ -322,6 +325,7 @@ A person's page also shows their **family**: parents, brothers and sisters, each
 - **A brother or sister** joins one of the person's families, so it's only offered once they have one. Siblings whose parents are both unknown still can't be linked.
 - **Undoing a link** asks first, and never deletes a person. Removing a partner keeps any children with the other partner; if there are no children the family goes too.
 
+- **Marriage and divorce** sit on the partnership, using the same event editor as births and deaths ([`EventsEditor.tsx`](web/src/features/people/EventsEditor.tsx)).
 - **Someone not in the tree yet** can be added from any of these forms with "Add someone new", starting from the name searched for. They're saved straight away and chosen, then Save links them. So cancelling after that leaves them in the tree with no relatives, and you can delete them from their page. If the name matches someone, you can use that person instead, or add anyway.
 
 "Brothers and sisters" lists only people in the same family, so half-siblings through a parent's other partnership aren't shown here.

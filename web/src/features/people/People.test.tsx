@@ -610,6 +610,7 @@ describe("A person's family", () => {
       partner1Id: 'anna',
       partner2Id: null,
       type: 'None',
+      events: [],
       children: [
         { childId: 'ewan', partner1Relationship: 'Adopted', partner2Relationship: 'Unknown' },
         { childId: 'flora', partner1Relationship: 'Biological', partner2Relationship: 'Unknown' },
@@ -620,6 +621,7 @@ describe("A person's family", () => {
       partner1Id: 'ishbel',
       partner2Id: 'ewan',
       type: 'Marriage',
+      events: [],
       children: [{ childId: 'calum', partner1Relationship: 'Biological', partner2Relationship: 'Step' }],
     }
     familiesAre({ asChild: [birthFamily], asPartner: [marriage], people: [ewan, ishbel, anna, calum, flora] })
@@ -649,7 +651,7 @@ describe("A person's family", () => {
       http.post('*/api/v1/admin/families', async ({ request }) => {
         sent = await request.json()
         familiesAre({
-          asPartner: [{ id: 'f', partner1Id: 'ewan', partner2Id: 'ishbel', type: 'Cohabiting', children: [] }],
+          asPartner: [{ id: 'f', partner1Id: 'ewan', partner2Id: 'ishbel', type: 'Cohabiting', events: [], children: [] }],
           people: [ewan, ishbel],
         })
         return HttpResponse.json({}, { status: 201 })
@@ -694,7 +696,7 @@ describe("A person's family", () => {
   it('adds a child to a partnership, with a relationship to each parent', async () => {
     let sent: unknown
     familiesAre({
-      asPartner: [{ id: 'marriage', partner1Id: 'ishbel', partner2Id: 'ewan', type: 'Marriage', children: [] }],
+      asPartner: [{ id: 'marriage', partner1Id: 'ishbel', partner2Id: 'ewan', type: 'Marriage', events: [], children: [] }],
       people: [ewan, ishbel],
     })
     await openEwan()
@@ -709,6 +711,7 @@ describe("A person's family", () => {
               partner1Id: 'ishbel',
               partner2Id: 'ewan',
               type: 'Marriage',
+              events: [],
               children: [{ childId: 'rory', partner1Relationship: 'Biological', partner2Relationship: 'Step' }],
             },
           ],
@@ -754,7 +757,7 @@ describe("A person's family", () => {
 
   it('reuses a family with an unknown other parent', async () => {
     familiesAre({
-      asPartner: [{ id: 'alone', partner1Id: 'ewan', partner2Id: null, type: 'None', children: [] }],
+      asPartner: [{ id: 'alone', partner1Id: 'ewan', partner2Id: null, type: 'None', events: [], children: [] }],
       people: [ewan],
     })
     await openEwan()
@@ -787,6 +790,7 @@ describe("A person's family", () => {
     partner1Id: 'anna',
     partner2Id: null,
     type: 'None',
+    events: [],
     children: [{ childId: 'ewan', partner1Relationship: 'Biological', partner2Relationship: 'Unknown' }],
   }
 
@@ -886,7 +890,7 @@ describe("A person's family", () => {
 
   it('corrects the type of a partnership', async () => {
     let sent: unknown
-    const marriage: Family = { id: 'f', partner1Id: 'ewan', partner2Id: 'ishbel', type: 'Unknown', children: [] }
+    const marriage: Family = { id: 'f', partner1Id: 'ewan', partner2Id: 'ishbel', type: 'Unknown', events: [], children: [] }
     familiesAre({ asPartner: [marriage], people: [ewan, ishbel] })
     await openEwan()
     server.use(
@@ -913,6 +917,7 @@ describe("A person's family", () => {
       partner1Id: 'ewan',
       partner2Id: 'ishbel',
       type: 'Marriage',
+      events: [],
       children: [{ childId: 'calum', partner1Relationship: 'Biological', partner2Relationship: 'Biological' }],
     }
     familiesAre({ asPartner: [family], people: [ewan, ishbel, calum] })
@@ -940,6 +945,7 @@ describe("A person's family", () => {
       partner1Id: 'ewan',
       partner2Id: null,
       type: 'None',
+      events: [],
       children: [{ childId: 'calum', partner1Relationship: 'Biological', partner2Relationship: 'Unknown' }],
     }
     familiesAre({ asPartner: [family], people: [ewan, calum] })
@@ -976,7 +982,7 @@ describe("A person's family", () => {
   it('removes an empty family with an unknown partner', async () => {
     let removed = false
     familiesAre({
-      asPartner: [{ id: 'alone', partner1Id: 'ewan', partner2Id: null, type: 'None', children: [] }],
+      asPartner: [{ id: 'alone', partner1Id: 'ewan', partner2Id: null, type: 'None', events: [], children: [] }],
       people: [ewan],
     })
     await openEwan()
@@ -996,7 +1002,7 @@ describe("A person's family", () => {
   })
 
   it("shows the API's reason when a link can't be undone", async () => {
-    const family: Family = { id: 'f', partner1Id: 'ewan', partner2Id: 'ishbel', type: 'Marriage', children: [] }
+    const family: Family = { id: 'f', partner1Id: 'ewan', partner2Id: 'ishbel', type: 'Marriage', events: [], children: [] }
     familiesAre({ asPartner: [family], people: [ewan, ishbel] })
     await openEwan()
     server.use(
@@ -1011,8 +1017,120 @@ describe("A person's family", () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('A family needs at least one known partner.')
   })
 
+  describe('marriage and divorce', () => {
+    const wed: Family = { id: 'f', partner1Id: 'ewan', partner2Id: 'ishbel', type: 'Marriage', events: [], children: [] }
+    const wedding = { id: 'w', type: 'Marriage', date: 'c. 1895', dateAsEntered: 'abt 1895', place: 'Innellan' }
+
+    it('records a marriage on the partnership and shows it', async () => {
+      let sent: unknown
+      familiesAre({ asPartner: [wed], people: [ewan, ishbel] })
+      await openEwan()
+      server.use(
+        http.post('*/api/v1/admin/families/f/events', async ({ request }) => {
+          sent = await request.json()
+          familiesAre({ asPartner: [{ ...wed, events: [wedding] }], people: [ewan, ishbel] })
+          return HttpResponse.json({}, { status: 201 })
+        }),
+      )
+
+      click('Add a marriage or divorce with Ishbel Campbell')
+      const form = within(screen.getAllByRole('form', { name: 'Add an event' })[0])
+      fireEvent.change(form.getByLabelText('Date'), { target: { value: 'abt 1895' } })
+      fireEvent.change(form.getByLabelText('Place'), { target: { value: 'Innellan' } })
+      fireEvent.click(form.getByRole('button', { name: 'Add event' }))
+
+      expect(await screen.findByText(/c\. 1895 · Innellan/)).toBeInTheDocument()
+      expect(sent).toEqual({ type: 'Marriage', date: 'abt 1895', place: 'Innellan' })
+      await waitFor(() => expect(screen.getAllByRole('form', { name: 'Add an event' })).toHaveLength(1))
+    })
+
+    it('offers only what the family has not recorded', async () => {
+      familiesAre({ asPartner: [{ ...wed, events: [wedding] }], people: [ewan, ishbel] })
+      await openEwan()
+
+      click('Add a marriage or divorce with Ishbel Campbell')
+
+      const form = within(screen.getAllByRole('form', { name: 'Add an event' })[0])
+      expect(within(form.getByLabelText('Event')).getAllByRole('option').map((option) => option.textContent)).toEqual(['Divorce'])
+    })
+
+    it('stops offering to add once both are recorded', async () => {
+      const divorce = { id: 'd', type: 'Divorce', date: '1921', dateAsEntered: '1921', place: null }
+      familiesAre({ asPartner: [{ ...wed, events: [wedding, divorce] }], people: [ewan, ishbel] })
+      await openEwan()
+
+      expect(screen.queryByRole('button', { name: /Add a marriage or divorce/ })).not.toBeInTheDocument()
+    })
+
+    it('explains a date it cannot understand', async () => {
+      familiesAre({ asPartner: [wed], people: [ewan, ishbel] })
+      await openEwan()
+      server.use(
+        http.post('*/api/v1/admin/families/f/events', () =>
+          HttpResponse.json({ errors: { date: ["That isn't a date this understands."] } }, { status: 400, ...problemJson }),
+        ),
+      )
+
+      click('Add a marriage or divorce with Ishbel Campbell')
+      const form = within(screen.getAllByRole('form', { name: 'Add an event' })[0])
+      fireEvent.change(form.getByLabelText('Date'), { target: { value: '31 Feb 1900' } })
+      fireEvent.click(form.getByRole('button', { name: 'Add event' }))
+
+      expect(await form.findByRole('alert')).toHaveTextContent("isn't a date this understands")
+    })
+
+    it('corrects a marriage, starting from the date as it was typed', async () => {
+      let sent: unknown
+      familiesAre({ asPartner: [{ ...wed, events: [wedding] }], people: [ewan, ishbel] })
+      await openEwan()
+      server.use(
+        http.put('*/api/v1/admin/families/f/events/w', async ({ request }) => {
+          sent = await request.json()
+          familiesAre({ asPartner: [{ ...wed, events: [{ ...wedding, date: '1896', place: 'Dunoon' }] }], people: [ewan, ishbel] })
+          return HttpResponse.json({})
+        }),
+      )
+
+      click('Edit marriage with Ishbel Campbell')
+      const form = within(screen.getByRole('form', { name: 'Edit marriage with Ishbel Campbell' }))
+      expect(form.getByLabelText('Date')).toHaveValue('abt 1895')
+      fireEvent.change(form.getByLabelText('Date'), { target: { value: '1896' } })
+      fireEvent.change(form.getByLabelText('Place'), { target: { value: 'Dunoon' } })
+      fireEvent.click(form.getByRole('button', { name: 'Save' }))
+
+      expect(await screen.findByText(/1896 · Dunoon/)).toBeInTheDocument()
+      expect(sent).toEqual({ date: '1896', place: 'Dunoon' })
+    })
+
+    it('removes a marriage after confirming', async () => {
+      familiesAre({ asPartner: [{ ...wed, events: [wedding] }], people: [ewan, ishbel] })
+      await openEwan()
+      server.use(
+        http.delete('*/api/v1/admin/families/f/events/w', () => {
+          familiesAre({ asPartner: [wed], people: [ewan, ishbel] })
+          return new HttpResponse(null, { status: 204 })
+        }),
+      )
+
+      click('Remove marriage with Ishbel Campbell')
+      click('Yes, remove')
+
+      await waitFor(() => expect(screen.queryByText(/c\. 1895/)).not.toBeInTheDocument())
+    })
+
+    it('can back out of adding one', async () => {
+      familiesAre({ asPartner: [wed], people: [ewan, ishbel] })
+      await openEwan()
+
+      click('Add a marriage or divorce with Ishbel Campbell')
+      fireEvent.click(within(screen.getAllByRole('form', { name: 'Add an event' })[0]).getByRole('button', { name: 'Cancel' }))
+
+      expect(screen.getByRole('button', { name: 'Add a marriage or divorce with Ishbel Campbell' })).toBeInTheDocument()
+    })
+  })
+
   it('can back out of undoing a link', async () => {
-    const family: Family = { id: 'f', partner1Id: 'ewan', partner2Id: 'ishbel', type: 'Marriage', children: [] }
+    const family: Family = { id: 'f', partner1Id: 'ewan', partner2Id: 'ishbel', type: 'Marriage', events: [], children: [] }
     familiesAre({ asPartner: [family], people: [ewan, ishbel] })
     await openEwan()
 
