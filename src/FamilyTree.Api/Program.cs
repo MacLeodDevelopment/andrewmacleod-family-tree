@@ -50,7 +50,7 @@ builder.Services.AddOptions<CorsOptions>()
         var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
         options.AddDefaultPolicy(policy => policy
             .WithOrigins(allowedOrigins)
-            .WithMethods("GET", "POST")
+            .WithMethods("GET", "POST", "DELETE")
             .WithHeaders("Authorization", "Content-Type")
             .WithExposedHeaders("Retry-After"));
     });

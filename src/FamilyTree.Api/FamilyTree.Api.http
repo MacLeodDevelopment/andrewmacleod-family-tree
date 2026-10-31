@@ -27,12 +27,23 @@ Content-Type: application/json
   ]
 }
 
+### Add someone who shares a name with an existing person. Without allowDuplicate this gets 409, listing the matches.
+POST {{api}}/api/v1/admin/people?allowDuplicate=true
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "names": [{ "givenName": "Isla", "surname": "MacLeod" }] }
+
 ### List people, a page at a time
 GET {{api}}/api/v1/admin/people?skip=0&take=50
 Authorization: Bearer {{token}}
 
 ### Read one person: replace the ID with one from the list
 GET {{api}}/api/v1/admin/people/01a191bb-71f7-7816-930b-25f3daecd1a9
+Authorization: Bearer {{token}}
+
+### Delete a person, with their names and events. This can't be undone: replace the ID with care
+DELETE {{api}}/api/v1/admin/people/00000000-0000-0000-0000-000000000000
 Authorization: Bearer {{token}}
 
 ### Record a birth: replace the ID. Dates can be as fuzzy as the records: abt 1870, bef Mar 1901, 1870-75, Q2 1880
