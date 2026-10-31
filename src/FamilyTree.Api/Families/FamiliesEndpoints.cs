@@ -1,4 +1,5 @@
 using FamilyTree.Api.Authorization;
+using FamilyTree.Api.People;
 using FamilyTree.Domain;
 using FamilyTree.Infrastructure;
 using Microsoft.EntityFrameworkCore;
@@ -7,18 +8,26 @@ namespace FamilyTree.Api.Families;
 
 public static class FamiliesEndpoints
 {
-    public sealed record CreateFamilyRequest(Guid? Partner1Id, Guid? Partner2Id, PartnershipType Type = PartnershipType.Unknown);
-
     public sealed record AddChildRequest(
         Guid ChildId,
         ParentRelationship Partner1Relationship = ParentRelationship.Biological,
         ParentRelationship Partner2Relationship = ParentRelationship.Biological);
 
+    public sealed record CreateFamilyRequest(
+        Guid? Partner1Id,
+        Guid? Partner2Id,
+        PartnershipType Type = PartnershipType.Unknown,
+        IReadOnlyList<AddChildRequest>? Children = null);
+
     public sealed record ChildResponse(Guid ChildId, ParentRelationship Partner1Relationship, ParentRelationship Partner2Relationship);
 
     public sealed record FamilyResponse(Guid Id, Guid? Partner1Id, Guid? Partner2Id, PartnershipType Type, IReadOnlyList<ChildResponse> Children);
 
-    public sealed record PersonFamiliesResponse(IReadOnlyList<FamilyResponse> AsChild, IReadOnlyList<FamilyResponse> AsPartner);
+    /// <summary>A person's families, with everyone in them, so a screen can name them without more requests.</summary>
+    public sealed record PersonFamiliesResponse(
+        IReadOnlyList<FamilyResponse> AsChild,
+        IReadOnlyList<FamilyResponse> AsPartner,
+        IReadOnlyList<PeopleEndpoints.PersonResponse> People);
 
     /// <summary>/admin/families and /admin/people/{id}/families: recording how people are related.</summary>
     public static RouteGroupBuilder MapFamiliesEndpoints(this RouteGroupBuilder group)
@@ -35,6 +44,10 @@ public static class FamiliesEndpoints
         return group;
     }
 
+    /// <summary>
+    /// Records a family, with any children given. They're saved together, so a child who is
+    /// refused can't leave a new family behind with nobody in it.
+    /// </summary>
     private static async Task<IResult> CreateAsync(
         CreateFamilyRequest request, FamilyTreeDbContext database, CancellationToken cancellationToken)
     {
@@ -53,9 +66,28 @@ public static class FamiliesEndpoints
             }
         }
 
+        var children = request.Children ?? [];
+        foreach (var child in children)
+        {
+            if (!await database.People.AnyAsync(person => person.Id == child.ChildId, cancellationToken))
+            {
+                missing["childId"] = ["There's no person with this ID."];
+            }
+        }
+
         if (missing.Count > 0)
         {
             return Results.ValidationProblem(missing);
+        }
+
+        var tree = new FamilyGraph(await database.Families.AsNoTracking().ToListAsync(cancellationToken));
+        foreach (var child in children)
+        {
+            var added = result.Value.AddChild(child.ChildId, child.Partner1Relationship, child.Partner2Relationship, tree);
+            if (!added.IsSuccess)
+            {
+                return Results.ValidationProblem(added.Errors.ToDictionary());
+            }
         }
 
         database.Families.Add(result.Value);
@@ -137,9 +169,15 @@ public static class FamiliesEndpoints
             .Where(f => f.Partner1Id == id || f.Partner2Id == id || f.Children.Any(child => child.ChildId == id))
             .ToListAsync(cancellationToken);
 
+        var relatives = families.SelectMany(f => f.Partners.Concat(f.Children.Select(child => child.ChildId))).Distinct().ToList();
+        var people = await database.People.AsNoTracking()
+            .Where(person => relatives.Contains(person.Id))
+            .ToListAsync(cancellationToken);
+
         return Results.Ok(new PersonFamiliesResponse(
             families.Where(f => f.Children.Any(child => child.ChildId == id)).Select(ToResponse).ToList(),
-            families.Where(f => f.Partners.Contains(id)).Select(ToResponse).ToList()));
+            families.Where(f => f.Partners.Contains(id)).Select(ToResponse).ToList(),
+            people.Select(PeopleEndpoints.ToResponse).ToList()));
     }
 
     private static IResult Created(Family family) =>

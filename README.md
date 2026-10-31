@@ -197,7 +197,7 @@ A **person** ([`Person.cs`](src/FamilyTree.Domain/Person.cs)) has a recorded **s
 |---|---|
 | `POST /api/v1/admin/people` | Adds a person. Returns 201 with the person, and their address in `Location`. |
 | `GET /api/v1/admin/people/{id}` | Reads a person, or 404. |
-| `GET /api/v1/admin/people?skip=0&take=50` | Lists people a page at a time (at most 200), with the total. |
+| `GET /api/v1/admin/people?skip=0&take=50` | Lists people a page at a time (at most 200), with the total. Add `&search=morag macleod` to keep only people with a name containing every word, in any order. |
 | `PUT /api/v1/admin/people/{id}` | Replaces a person's sex and all their names, by the same rules as adding them. Their events are untouched. Returns 200 with the person, 400 or 404. |
 | `DELETE /api/v1/admin/people/{id}` | Permanently removes a person, with their names and events. Returns 204, or 404, or 409 if they're in a family. |
 
@@ -258,12 +258,12 @@ A **person** ([`Person.cs`](src/FamilyTree.Domain/Person.cs)) has a recorded **s
 
 | Request | What it does |
 |---|---|
-| `POST /api/v1/admin/families` | Records a family. |
+| `POST /api/v1/admin/families` | Records a family, and optionally its first `children`, saved together so a refused child leaves no empty family behind. |
 | `GET /api/v1/admin/families/{id}` | Reads a family. |
 | `DELETE /api/v1/admin/families/{id}` | Removes a family and its child links. |
 | `POST /api/v1/admin/families/{id}/children` | Adds a child, with their relationship to each parent. |
 | `DELETE /api/v1/admin/families/{id}/children/{childId}` | Takes a child out of a family. |
-| `GET /api/v1/admin/people/{id}/families` | A person's families, as a child and as a partner. |
+| `GET /api/v1/admin/people/{id}/families` | A person's families, as a child and as a partner, with everyone in them under `people`, so a screen can name them with one request. |
 
 **Not yet:** naming a partner later, once an unknown father is found (for now, delete and re-create the family), and marriage dates and places. Both fit naturally with the editing screens.
 
@@ -312,6 +312,10 @@ An admin can list people, add, correct and delete them, and record, correct and 
 - **Pages are addresses.** [React Router](https://reactrouter.com/) maps `/people`, `/people/new` and `/people/:id` to components in the browser, so links and the back button work as usual. Static Web Apps doesn't have a file at those addresses, so its `navigationFallback` setting serves `index.html` and the router takes over.
 - **Data from the API goes through [TanStack Query](https://tanstack.com/query).** A component says what it needs (`useQuery`) and gets back loading, error and data states, and the answer is shared by key. For example, the header's role badge, the People link and the admin check all use one `/me` request ([`me.ts`](web/src/shared/api/me.ts)). After a change, a screen *invalidates* the keys it affected and they're refetched, which keeps the list up to date. Failed requests are retried twice in case the API is waking from zero, except 4xx refusals, which wouldn't change ([`queryClient.ts`](web/src/shared/api/queryClient.ts)).
 - **One function talks to the API.** [`client.ts`](web/src/shared/api/client.ts) adds the access token and turns any failure into an `ApiError` carrying the problem details. The forms read `errors` from it and show each message beside its field, so validation rules live only in the API.
+
+A person's page also shows their **family**: parents, brothers and sisters, each partnership, and the children of it ([`Relatives.tsx`](web/src/features/people/Relatives.tsx)). You can link a partner or child by searching for someone already in the tree. A relationship other than biological is shown beside the name. A child whose other parent isn't known goes in a family with one partner, created along with the child the first time and reused after that.
+
+Not yet: adding a parent or sibling, undoing a link, or creating someone new from this page. For now, add the person from the People page, then link them. "Brothers and sisters" lists only people in the same family, so half-siblings through a parent's other partnership aren't shown here.
 
 Things worth knowing:
 

@@ -99,6 +99,52 @@ public class PeopleTests(ApiFactory factory, SqlServerContainer sqlServer) : ICl
     }
 
     [Theory]
+    [InlineData("{0} Morrison")]
+    [InlineData("{0}")]
+    [InlineData("Morrison {0}")]
+    [InlineData("  {0}  ")]
+    public async Task People_can_be_found_by_any_part_of_their_names(string search)
+    {
+        var client = Api().CreateClientFor(Admin);
+        var word = $"Findme{Guid.NewGuid():N}";
+        await client.PostAsJsonAsync(People, new { names = new[] { new { givenName = word, surname = "Morrison" } } }, Cancellation);
+        await client.PostAsJsonAsync(People, new { names = new[] { new { givenName = word, surname = "Campbell" } } }, Cancellation);
+
+        var found = await client.GetFromJsonAsync<Page>(
+            $"{People}?search={Uri.EscapeDataString(string.Format(search, word.ToUpperInvariant()))}", Cancellation);
+
+        Assert.Equal(search.Contains("Morrison") ? 1 : 2, found!.Total);
+        Assert.Equal(found.Total, found.Items.Length);
+    }
+
+    [Fact]
+    public async Task Someone_can_be_found_by_a_married_name()
+    {
+        var client = Api().CreateClientFor(Admin);
+        var word = $"Findme{Guid.NewGuid():N}";
+        await client.PostAsJsonAsync($"{People}?allowDuplicate=true", new
+        {
+            names = new[]
+            {
+                new { givenName = "Isla", surname = "Campbell", type = "Birth" },
+                new { givenName = "Isla", surname = word, type = "Married" },
+            },
+        }, Cancellation);
+
+        var found = await client.GetFromJsonAsync<Page>($"{People}?search={word}", Cancellation);
+
+        Assert.Equal("Campbell", Assert.Single(found!.Items).Names[0].Surname);
+    }
+
+    [Fact]
+    public async Task Searching_treats_wildcards_as_ordinary_characters()
+    {
+        var found = await Api().CreateClientFor(Admin).GetFromJsonAsync<Page>($"{People}?search=%25", Cancellation);
+
+        Assert.Empty(found!.Items);
+    }
+
+    [Theory]
     [InlineData("names[0].givenName", """{"names":[{"surname":"MacLeod"}]}""")]
     [InlineData("names[0].givenName", """{"names":[{"givenName":"   "}]}""")]
     [InlineData("names", """{"names":[]}""")]

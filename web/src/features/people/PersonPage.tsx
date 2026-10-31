@@ -5,6 +5,7 @@ import { ApiError, useApi } from '../../shared/api/client.ts'
 import { LifeEvents } from './LifeEvents.tsx'
 import { LoadPerson } from './LoadPerson.tsx'
 import { fullName, peopleUrl, type Person } from './people.ts'
+import { Relatives } from './Relatives.tsx'
 
 export function PersonPage() {
   return <LoadPerson>{(person) => <PersonDetails person={person} />}</LoadPerson>
@@ -37,6 +38,8 @@ function PersonDetails({ person }: { person: Person }) {
           </>
         )}
       </dl>
+
+      <Relatives person={person} />
 
       <LifeEvents person={person} />
 
