@@ -4,8 +4,10 @@ import { Link } from 'react-router'
 import { useApi } from '../../shared/api/client.ts'
 import { AddChildForm, AddParentForm, AddPartnerForm, AddSiblingForm, SaveError } from './AddRelative.tsx'
 import { ConfirmRemove } from './ConfirmRemove.tsx'
+import { EventsEditor } from './EventsEditor.tsx'
 import {
   familiesUrl,
+  familyEventTypes,
   otherPartner,
   parentsOf,
   partnershipTypes,
@@ -139,6 +141,7 @@ function Parents({ family, person, people }: { family: Family; person: Person; p
 
 function Partnership({ family, person, people }: { family: Family; person: Person; people: Person[] }) {
   const api = useApi()
+  const queryClient = useQueryClient()
   const [changingType, setChangingType] = useState(false)
   const partnerId = otherPartner(family, person.id)
   const partner = partnerId ? personName(partnerId, people) : 'someone unknown'
@@ -156,6 +159,15 @@ function Partnership({ family, person, people }: { family: Family; person: Perso
         )}
         {family.type !== 'Unknown' && family.type !== 'None' && ` · ${partnershipTypes[family.type]}`}
       </h3>
+
+      <EventsEditor
+        events={family.events}
+        types={familyEventTypes}
+        url={`${familiesUrl}/${family.id}/events`}
+        refresh={() => refreshFamilies(queryClient)}
+        addLabel="Add a marriage or divorce"
+        labelSuffix={` with ${partner}`}
+      />
 
       {hasChildren && (
         <ul className="relatives">

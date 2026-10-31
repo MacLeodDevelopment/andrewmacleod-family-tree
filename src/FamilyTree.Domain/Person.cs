@@ -64,7 +64,7 @@ public enum EventType
 /// <summary>Something that happened in a person's life, when and where it's known.</summary>
 public sealed class LifeEvent
 {
-    public const int MaxPlaceLength = 200;
+    public const int MaxPlaceLength = EventDetails.MaxPlaceLength;
 
     // For Entity Framework, which sets the properties itself.
     private LifeEvent()
@@ -188,13 +188,13 @@ public sealed class Person
             errors["type"] = [$"This person already has a {type.ToString().ToLowerInvariant()} recorded."];
         }
 
-        var date = ReadEventDetails(dateText, place, errors);
+        var date = EventDetails.Read(dateText, place, errors);
         if (errors.Count > 0)
         {
             return Result<LifeEvent>.Failure(errors);
         }
 
-        var lifeEvent = new LifeEvent(type, date, Clean(place));
+        var lifeEvent = new LifeEvent(type, date, EventDetails.CleanPlace(place));
         events.Add(lifeEvent);
         return Result<LifeEvent>.Success(lifeEvent);
     }
@@ -203,43 +203,18 @@ public sealed class Person
     public Result<LifeEvent> ChangeEvent(Guid eventId, string? dateText, string? place)
     {
         var errors = new Dictionary<string, string[]>();
-        var date = ReadEventDetails(dateText, place, errors);
+        var date = EventDetails.Read(dateText, place, errors);
         if (errors.Count > 0)
         {
             return Result<LifeEvent>.Failure(errors);
         }
 
         var lifeEvent = events.Single(existing => existing.Id == eventId);
-        lifeEvent.Change(date, Clean(place));
+        lifeEvent.Change(date, EventDetails.CleanPlace(place));
         return Result<LifeEvent>.Success(lifeEvent);
     }
 
     public void RemoveEvent(Guid eventId) => events.RemoveAll(existing => existing.Id == eventId);
-
-    /// <summary>The date, if there is one, adding anything wrong with the details to <paramref name="errors"/>.</summary>
-    private static GenealogicalDate? ReadEventDetails(string? dateText, string? place, Dictionary<string, string[]> errors)
-    {
-        GenealogicalDate? date = null;
-        if (!Blank(dateText))
-        {
-            var parsed = GenealogicalDate.Parse(dateText!);
-            if (parsed.IsSuccess)
-            {
-                date = parsed.Value;
-            }
-            else
-            {
-                errors["date"] = parsed.Errors["date"];
-            }
-        }
-
-        if (place?.Trim().Length > LifeEvent.MaxPlaceLength)
-        {
-            errors["place"] = [$"A place can't be longer than {LifeEvent.MaxPlaceLength} characters."];
-        }
-
-        return date;
-    }
 
     private static Dictionary<string, string[]> Validate(IReadOnlyList<NameDetails> names)
     {

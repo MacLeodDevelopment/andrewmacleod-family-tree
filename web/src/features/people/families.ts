@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query'
+import type { RecordedEvent } from './EventsEditor.tsx'
 import { fullName, type Person } from './people.ts'
 
 export const partnershipTypes = {
@@ -8,6 +9,8 @@ export const partnershipTypes = {
   Cohabiting: 'Living together',
   None: 'Not a couple',
 } as const
+
+export const familyEventTypes = ['Marriage', 'Divorce'] as const
 
 export const parentRelationships = ['Biological', 'Adopted', 'Step', 'Foster', 'Presumed', 'Unknown'] as const
 
@@ -27,6 +30,7 @@ export interface Family {
   partner2Id: string | null
   type: PartnershipType
   children: ChildLink[]
+  events: RecordedEvent[]
 }
 
 export interface PersonFamilies {

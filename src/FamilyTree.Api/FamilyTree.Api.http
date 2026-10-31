@@ -136,6 +136,31 @@ Content-Type: application/json
 DELETE {{api}}/api/v1/admin/families/00000000-0000-0000-0000-000000000000/partners/00000000-0000-0000-0000-000000000000
 Authorization: Bearer {{token}}
 
+### Record a marriage or divorce: replace the family ID. Dates can be as fuzzy as for a person.
+POST {{api}}/api/v1/admin/families/00000000-0000-0000-0000-000000000000/events
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "type": "Marriage",
+  "date": "abt 1895",
+  "place": "Innellan, Argyll"
+}
+
+### Correct a marriage or divorce: family ID, then event ID. Its type stays the same.
+PUT {{api}}/api/v1/admin/families/00000000-0000-0000-0000-000000000000/events/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "date": "12 Jun 1895",
+  "place": "Dunoon"
+}
+
+### Remove a marriage or divorce: family ID, then event ID.
+DELETE {{api}}/api/v1/admin/families/00000000-0000-0000-0000-000000000000/events/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{token}}
+
 ### Delete a family and its child links. The people aren't deleted.
 DELETE {{api}}/api/v1/admin/families/00000000-0000-0000-0000-000000000000
 Authorization: Bearer {{token}}

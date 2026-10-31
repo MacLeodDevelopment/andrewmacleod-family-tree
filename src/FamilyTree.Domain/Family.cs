@@ -11,6 +11,47 @@ public enum PartnershipType
     None,
 }
 
+public enum FamilyEventType
+{
+    Marriage,
+    Divorce,
+}
+
+/// <summary>Something that happened to a couple, when and where it's known.</summary>
+public sealed class FamilyEvent
+{
+    public const int MaxPlaceLength = EventDetails.MaxPlaceLength;
+
+    // For Entity Framework, which sets the properties itself.
+    private FamilyEvent()
+    {
+    }
+
+    internal FamilyEvent(FamilyEventType type, GenealogicalDate? date, string? place)
+    {
+        Id = Guid.CreateVersion7();
+        Type = type;
+        Date = date;
+        Place = place;
+    }
+
+    public Guid Id { get; private set; }
+
+    public FamilyEventType Type { get; private set; }
+
+    /// <summary>Null when it isn't known.</summary>
+    public GenealogicalDate? Date { get; private set; }
+
+    /// <summary>Free text for now. Null when it isn't known.</summary>
+    public string? Place { get; private set; }
+
+    internal void Change(GenealogicalDate? date, string? place)
+    {
+        Date = date;
+        Place = place;
+    }
+}
+
 /// <summary>How a child relates to one particular parent.</summary>
 public enum ParentRelationship
 {
@@ -65,6 +106,7 @@ public sealed class ChildLink
 public sealed class Family
 {
     private readonly List<ChildLink> children = [];
+    private readonly List<FamilyEvent> events = [];
 
     // For Entity Framework, which sets the properties itself.
     private Family()
@@ -81,6 +123,13 @@ public sealed class Family
     public PartnershipType Type { get; private set; }
 
     public IReadOnlyList<ChildLink> Children => children;
+
+    public IReadOnlyList<FamilyEvent> Events => events;
+
+    /// <summary>The family's events in date order, with undated events last.</summary>
+    public IEnumerable<FamilyEvent> Timeline => events
+        .OrderBy(familyEvent => familyEvent.Date is null)
+        .ThenBy(familyEvent => familyEvent.Date?.SortKey);
 
     public IEnumerable<Guid> Partners => new[] { Partner1Id, Partner2Id }.Where(id => id is not null).Select(id => id!.Value);
 
@@ -106,6 +155,46 @@ public sealed class Family
     }
 
     public void ChangeType(PartnershipType type) => Type = type;
+
+    /// <summary>
+    /// Records an event, once each: a couple who marry each other again are a second family,
+    /// as their children may belong to one or the other.
+    /// </summary>
+    public Result<FamilyEvent> AddEvent(FamilyEventType type, string? dateText, string? place)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (events.Any(existing => existing.Type == type))
+        {
+            errors["type"] = [$"This family already has a {type.ToString().ToLowerInvariant()} recorded."];
+        }
+
+        var date = EventDetails.Read(dateText, place, errors);
+        if (errors.Count > 0)
+        {
+            return Result<FamilyEvent>.Failure(errors);
+        }
+
+        var familyEvent = new FamilyEvent(type, date, EventDetails.CleanPlace(place));
+        events.Add(familyEvent);
+        return Result<FamilyEvent>.Success(familyEvent);
+    }
+
+    /// <summary>Changes when and where an event happened. Its type stays the same.</summary>
+    public Result<FamilyEvent> ChangeEvent(Guid eventId, string? dateText, string? place)
+    {
+        var errors = new Dictionary<string, string[]>();
+        var date = EventDetails.Read(dateText, place, errors);
+        if (errors.Count > 0)
+        {
+            return Result<FamilyEvent>.Failure(errors);
+        }
+
+        var familyEvent = events.Single(existing => existing.Id == eventId);
+        familyEvent.Change(date, EventDetails.CleanPlace(place));
+        return Result<FamilyEvent>.Success(familyEvent);
+    }
+
+    public void RemoveEvent(Guid eventId) => events.RemoveAll(existing => existing.Id == eventId);
 
     /// <summary>
     /// Fills the family's unknown partner, who becomes a parent of all its children with

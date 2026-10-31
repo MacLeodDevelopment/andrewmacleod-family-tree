@@ -18,7 +18,9 @@ public class FamiliesTests(ApiFactory factory, SqlServerContainer sqlServer) : I
 
     private sealed record Child(Guid ChildId, string Partner1Relationship, string Partner2Relationship);
 
-    private sealed record FamilyResponse(Guid Id, Guid? Partner1Id, Guid? Partner2Id, string Type, Child[] Children);
+    private sealed record FamilyEvent(Guid Id, string Type, string? Date, string? DateAsEntered, string? Place);
+
+    private sealed record FamilyResponse(Guid Id, Guid? Partner1Id, Guid? Partner2Id, string Type, Child[] Children, FamilyEvent[] Events);
 
     private sealed record PersonFamilies(FamilyResponse[] AsChild, FamilyResponse[] AsPartner, Created[] People);
 
@@ -420,6 +422,170 @@ public class FamiliesTests(ApiFactory factory, SqlServerContainer sqlServer) : I
 
         Assert.Equal(HttpStatusCode.Forbidden, change.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, name.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, remove.StatusCode);
+    }
+
+    private static async Task<string> AddMarriageAsync(HttpClient client, Guid family, string date = "abt 1895", string? place = "Innellan")
+    {
+        var added = await client.PostAsJsonAsync($"{Families}/{family}/events", new { type = "Marriage", date, place }, Cancellation);
+        Assert.Equal(HttpStatusCode.Created, added.StatusCode);
+        var saved = await added.Content.ReadFromJsonAsync<FamilyResponse>(Cancellation);
+        return $"{Families}/{family}/events/{saved!.Events.Single(e => e.Type == "Marriage").Id}";
+    }
+
+    [Fact]
+    public async Task A_marriage_is_recorded_with_a_fuzzy_date_and_a_place_and_shows_for_both_partners()
+    {
+        var client = AdminClient();
+        var (first, second) = (await PersonAsync(client), await PersonAsync(client));
+        var family = await FamilyAsync(client, first, second);
+
+        await AddMarriageAsync(client, family);
+
+        foreach (var partner in new[] { first, second })
+        {
+            var families = await client.GetFromJsonAsync<PersonFamilies>($"{People}/{partner}/families", Cancellation);
+            var marriage = Assert.Single(Assert.Single(families!.AsPartner).Events);
+            Assert.Equal(("Marriage", "c. 1895", "abt 1895", "Innellan"), (marriage.Type, marriage.Date, marriage.DateAsEntered, marriage.Place));
+        }
+    }
+
+    [Fact]
+    public async Task A_familys_events_come_back_in_date_order_with_undated_ones_last()
+    {
+        var client = AdminClient();
+        var family = await FamilyAsync(client, await PersonAsync(client));
+        await client.PostAsJsonAsync($"{Families}/{family}/events", new { type = "Divorce", date = "1921" }, Cancellation);
+        await AddMarriageAsync(client, family, "1 May 1895");
+        var other = await FamilyAsync(client, await PersonAsync(client));
+        await client.PostAsJsonAsync($"{Families}/{other}/events", new { type = "Divorce" }, Cancellation);
+        await AddMarriageAsync(client, other, "1895");
+
+        Assert.Equal(["Marriage", "Divorce"], (await ReadAsync(client, family))!.Events.Select(e => e.Type));
+        Assert.Equal(["Marriage", "Divorce"], (await ReadAsync(client, other))!.Events.Select(e => e.Type));
+    }
+
+    [Fact]
+    public async Task A_family_can_only_record_one_marriage()
+    {
+        var client = AdminClient();
+        var family = await FamilyAsync(client, await PersonAsync(client));
+        await AddMarriageAsync(client, family);
+
+        var second = await client.PostAsJsonAsync($"{Families}/{family}/events", new { type = "Marriage" }, Cancellation);
+
+        await AssertRefusedAsync(second, "type");
+    }
+
+    [Fact]
+    public async Task A_marriage_date_that_makes_no_sense_is_refused_with_a_reason()
+    {
+        var client = AdminClient();
+        var family = await FamilyAsync(client, await PersonAsync(client));
+
+        var response = await client.PostAsJsonAsync($"{Families}/{family}/events", new { type = "Marriage", date = "31 Feb 1900" }, Cancellation);
+
+        await AssertRefusedAsync(response, "date");
+    }
+
+    [Fact]
+    public async Task A_place_too_long_to_store_is_refused_with_a_reason()
+    {
+        var client = AdminClient();
+        var family = await FamilyAsync(client, await PersonAsync(client));
+
+        var response = await client.PostAsJsonAsync($"{Families}/{family}/events", new { type = "Marriage", place = new string('x', 201) }, Cancellation);
+
+        await AssertRefusedAsync(response, "place");
+    }
+
+    [Fact]
+    public async Task A_marriage_can_be_corrected_and_rewording_keeps_what_was_typed()
+    {
+        var client = AdminClient();
+        var family = await FamilyAsync(client, await PersonAsync(client));
+        var marriage = await AddMarriageAsync(client, family);
+
+        var changed = await client.PutAsJsonAsync(marriage, new { date = "circa 1895", place = "Dunoon" }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        var saved = Assert.Single((await ReadAsync(client, family))!.Events);
+        Assert.Equal(("circa 1895", "c. 1895", "Dunoon"), (saved.DateAsEntered, saved.Date, saved.Place));
+    }
+
+    [Fact]
+    public async Task A_bad_correction_is_refused_and_keeps_the_old_date()
+    {
+        var client = AdminClient();
+        var family = await FamilyAsync(client, await PersonAsync(client));
+        var marriage = await AddMarriageAsync(client, family);
+
+        var response = await client.PutAsJsonAsync(marriage, new { date = "31 Feb 1900" }, Cancellation);
+
+        await AssertRefusedAsync(response, "date");
+        Assert.Equal("c. 1895", Assert.Single((await ReadAsync(client, family))!.Events).Date);
+    }
+
+    [Fact]
+    public async Task Removing_a_marriage_means_it_can_be_recorded_again()
+    {
+        var client = AdminClient();
+        var family = await FamilyAsync(client, await PersonAsync(client));
+        var marriage = await AddMarriageAsync(client, family);
+
+        var removed = await client.DeleteAsync(marriage, Cancellation);
+        var empty = await ReadAsync(client, family);
+        await AddMarriageAsync(client, family, "1896");
+
+        Assert.Equal(HttpStatusCode.NoContent, removed.StatusCode);
+        Assert.Empty(empty!.Events);
+    }
+
+    [Fact]
+    public async Task An_event_can_only_be_reached_through_its_own_family()
+    {
+        var client = AdminClient();
+        var family = await FamilyAsync(client, await PersonAsync(client));
+        var marriage = await AddMarriageAsync(client, family);
+        var other = await FamilyAsync(client, await PersonAsync(client));
+        var wrongAddress = $"{Families}/{other}/events/{marriage.Split('/')[^1]}";
+
+        var change = await client.PutAsJsonAsync(wrongAddress, new { date = "1999" }, Cancellation);
+        var remove = await client.DeleteAsync(wrongAddress, Cancellation);
+        var add = await client.PostAsJsonAsync($"{Families}/{Guid.NewGuid()}/events", new { type = "Marriage" }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.NotFound, change.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, remove.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, add.StatusCode);
+        Assert.Equal("c. 1895", Assert.Single((await ReadAsync(client, family))!.Events).Date);
+    }
+
+    [Fact]
+    public async Task Deleting_a_family_removes_its_events()
+    {
+        var client = AdminClient();
+        var family = await FamilyAsync(client, await PersonAsync(client));
+        await AddMarriageAsync(client, family);
+
+        var deleted = await client.DeleteAsync($"{Families}/{family}", Cancellation);
+
+        Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+    }
+
+    [Fact]
+    public async Task Viewers_cannot_change_a_familys_events()
+    {
+        var api = Api();
+        var (admin, viewer) = (api.CreateClientFor(Admin), api.CreateClientFor(Viewer));
+        var family = await FamilyAsync(admin, await PersonAsync(admin));
+        var marriage = await AddMarriageAsync(admin, family);
+
+        var add = await viewer.PostAsJsonAsync($"{Families}/{family}/events", new { type = "Divorce" }, Cancellation);
+        var change = await viewer.PutAsJsonAsync(marriage, new { date = "1999" }, Cancellation);
+        var remove = await viewer.DeleteAsync(marriage, Cancellation);
+
+        Assert.Equal(HttpStatusCode.Forbidden, add.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, change.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, remove.StatusCode);
     }
 

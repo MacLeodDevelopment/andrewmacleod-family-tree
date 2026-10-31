@@ -76,6 +76,21 @@ public sealed class FamilyTreeDbContext(DbContextOptions<FamilyTreeDbContext> op
                 child.HasIndex(c => c.ChildId);
             });
             family.Navigation(f => f.Children).UsePropertyAccessMode(PropertyAccessMode.Field);
+
+            family.OwnsMany(f => f.Events, familyEvent =>
+            {
+                familyEvent.ToTable("FamilyEvents");
+                familyEvent.WithOwner().HasForeignKey("FamilyId");
+                familyEvent.HasKey(e => e.Id);
+                familyEvent.Property(e => e.Id).ValueGeneratedNever();
+                familyEvent.Property(e => e.Type).HasConversion<string>().HasMaxLength(20);
+                familyEvent.Property(e => e.Place).HasMaxLength(FamilyEvent.MaxPlaceLength);
+                familyEvent.Property(e => e.Date)
+                    .HasMaxLength(GenealogicalDate.MaxLength)
+                    .HasConversion(date => date!.OriginalText, text => GenealogicalDate.Parse(text).Value);
+            });
+            family.Navigation(f => f.Events).UsePropertyAccessMode(PropertyAccessMode.Field);
+            family.Ignore(f => f.Timeline);
         });
     }
 }
