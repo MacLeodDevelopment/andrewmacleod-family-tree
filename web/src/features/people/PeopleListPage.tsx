@@ -18,9 +18,12 @@ export function PeopleListPage() {
     <>
       <div className="page-heading">
         <h1>People</h1>
-        <Link className="button" to="/people/new">
-          Add a person
-        </Link>
+        <span className="form-buttons">
+          <Link to="/people/accounts">Linked accounts</Link>
+          <Link className="button" to="/people/new">
+            Add a person
+          </Link>
+        </span>
       </div>
 
       {people.isPending && <p role="status">Loading…</p>}

@@ -13,6 +13,8 @@ public sealed class FamilyTreeDbContext(DbContextOptions<FamilyTreeDbContext> op
 
     public DbSet<Family> Families => Set<Family>();
 
+    public DbSet<AccountLink> AccountLinks => Set<AccountLink>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Person>(person =>
@@ -50,6 +52,18 @@ public sealed class FamilyTreeDbContext(DbContextOptions<FamilyTreeDbContext> op
             });
             person.Navigation(p => p.Events).UsePropertyAccessMode(PropertyAccessMode.Field);
             person.Ignore(p => p.Timeline);
+        });
+
+        modelBuilder.Entity<AccountLink>(link =>
+        {
+            link.ToTable("AccountLinks");
+            link.HasKey(l => l.AccountId);
+            link.Property(l => l.AccountId).ValueGeneratedNever();
+            link.Property(l => l.DisplayName).HasMaxLength(AccountLink.MaxNameLength);
+            link.Property(l => l.Username).HasMaxLength(AccountLink.MaxUsernameLength);
+
+            // Cascade: a link is only a note about the person, so it goes when they do.
+            link.HasOne<Person>().WithMany().HasForeignKey(l => l.PersonId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Family>(family =>

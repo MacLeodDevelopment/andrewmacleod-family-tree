@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using FamilyTree.Api.Account;
 using FamilyTree.Api.Authorization;
 using FamilyTree.Api.People;
 using FamilyTree.Domain;
@@ -60,16 +61,27 @@ public static class ProfilesEndpoints
         return group;
     }
 
-    /// <summary>Whose details this reader can't see: anyone who may be living, unless the reader is an admin.</summary>
-    private sealed record Privacy(bool SeesEverything, int CurrentYear)
+    /// <summary>
+    /// Whose details this reader can't see: anyone who may be living, except that admins
+    /// see everyone, and someone approved as a person sees that person.
+    /// </summary>
+    private sealed record Privacy(bool SeesEverything, Guid? OwnPerson, int CurrentYear)
     {
-        public static async Task<Privacy> ForAsync(ClaimsPrincipal user, IAuthorizationService authorization)
+        public static async Task<Privacy> ForAsync(
+            ClaimsPrincipal user, IAuthorizationService authorization, FamilyTreeDbContext database, CancellationToken cancellationToken)
         {
             var result = await authorization.AuthorizeAsync(user, FamilyPolicies.Admin);
-            return new Privacy(result.Succeeded, TimeProvider.System.GetUtcNow().Year);
+            var ownPerson = await AccountLinksEndpoints.ApprovedPersonAsync(user, database, cancellationToken);
+            return new Privacy(result.Succeeded, ownPerson, TimeProvider.System.GetUtcNow().Year);
         }
 
-        public bool Hides(Person person) => !SeesEverything && person.MayBeLiving(CurrentYear);
+        public bool Hides(Person person) =>
+            !SeesEverything && person.Id != OwnPerson && person.MayBeLiving(CurrentYear);
+
+        /// <summary>A marriage is private if either partner's details are, but it's the reader's own if they're one of them.</summary>
+        public bool ShowsEventsOf(Family family, Dictionary<Guid, Person> relatives) =>
+            family.Partners.Any(partner => partner == OwnPerson)
+            || !family.Partners.Any(partner => Hides(relatives[partner]));
     }
 
     private static async Task<SearchResults> SearchAsync(
@@ -80,7 +92,7 @@ public static class ProfilesEndpoints
             return new SearchResults([], 0);
         }
 
-        var privacy = await Privacy.ForAsync(user, authorization);
+        var privacy = await Privacy.ForAsync(user, authorization, database, cancellationToken);
         var matching = database.People.AsNoTracking().WithNameContaining(q);
         var people = await matching.OrderBy(person => person.Id).Take(MaxSearchResults).ToListAsync(cancellationToken);
 
@@ -98,7 +110,7 @@ public static class ProfilesEndpoints
             return Results.NotFound();
         }
 
-        var privacy = await Privacy.ForAsync(user, authorization);
+        var privacy = await Privacy.ForAsync(user, authorization, database, cancellationToken);
         var families = await database.Families.AsNoTracking()
             .Where(f => f.Partner1Id == id || f.Partner2Id == id || f.Children.Any(child => child.ChildId == id))
             .ToListAsync(cancellationToken);
@@ -135,7 +147,7 @@ public static class ProfilesEndpoints
             siblings.Select(sibling => new ProfileSibling(summaries[sibling], IsHalf: false))
                 .Concat(halfSiblings.Select(sibling => new ProfileSibling(summaries[sibling], IsHalf: true)))
                 .ToList(),
-            asPartner.Select(f => ToPartnership(f, id, summaries, ShowsEvents(f, relatives, privacy))).ToList()));
+            asPartner.Select(f => ToPartnership(f, id, summaries, privacy.ShowsEventsOf(f, relatives))).ToList()));
     }
 
     private static IEnumerable<ProfileParent> ParentsIn(Family family, Guid childId, Dictionary<Guid, PersonSummary> summaries)
@@ -145,10 +157,6 @@ public static class ProfilesEndpoints
         yield return new ProfileParent(Summary(family.Partner1Id, summaries), link.Partner1Relationship);
         yield return new ProfileParent(Summary(family.Partner2Id, summaries), link.Partner2Relationship);
     }
-
-    /// <summary>A marriage is private if either partner's details are.</summary>
-    private static bool ShowsEvents(Family family, Dictionary<Guid, Person> relatives, Privacy privacy) =>
-        !family.Partners.Any(partner => privacy.Hides(relatives[partner]));
 
     private static ProfilePartnership ToPartnership(
         Family family, Guid personId, Dictionary<Guid, PersonSummary> summaries, bool showsEvents)

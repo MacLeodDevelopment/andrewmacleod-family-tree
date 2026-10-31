@@ -99,6 +99,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check 
 
 app.MapGroup("/api/v1")
     .MapMeEndpoints()
+    .MapAccountLinksEndpoints()
     .MapPeopleEndpoints()
     .MapFamiliesEndpoints()
     .MapProfilesEndpoints();

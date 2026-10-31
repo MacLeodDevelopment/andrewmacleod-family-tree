@@ -376,7 +376,13 @@ The redaction happens in one place, in the viewer endpoints. The `/admin` endpoi
 
 Why this isn't in an Application project yet: the design planned one for the privacy rules, but the rule is a small function in the domain and it's used by one file. Add a project when a second consumer needs it.
 
-Not yet: a relative seeing their own record in full, and an admin marking someone as dead when no date is known. Until then, some people from long ago are hidden simply because they've no dates recorded, so adding a birth or death reveals them.
+**Someone from long ago with no dates** stays hidden until you record that they died. A death with a blank date is enough.
+
+**Seeing your own record.** A family member opens their profile and clicks **This is me**. That only sends a request: it reveals nothing until an admin approves it under People → Linked accounts. Once approved, they see their own details in full, including their own marriages, and a "My page" link appears in the header. They still can't see anyone else's details, including their partner's dates. An admin can remove a link at any time, and that takes the access away at once.
+
+- **Why it's a request, not an email address an admin types in.** The link is to the account's object ID (`oid`), which never changes and isn't reused. Email addresses and `preferred_username` can change, and Microsoft advises against using them to decide access. Nobody knows an `oid` by heart, so the account supplies it by asking.
+- **Check who's asking before approving.** Anyone in the family can click **This is me** on anyone's page, so the name and account on a request are only a claim. Approving wrongly shows that person's dates to someone else.
+- An approved account can't move itself to a different person. Before approval, asking again replaces the request.
 
 ### Security headers on the web app
 
@@ -641,7 +647,6 @@ az containerapp show -g rg-familytree -n familytree-api --query "properties.temp
 
 The app is being built in small iterations, one pull request each, so the PR history is the record of what changed and why. Coming next, roughly in order:
 
-- Linking a relative to their own record, so they see it in full.
 - Tree views.
 - Maps.
 

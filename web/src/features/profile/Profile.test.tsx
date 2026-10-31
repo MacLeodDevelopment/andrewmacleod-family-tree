@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { fakeAuth, renderApp } from '../../test/renderApp.tsx'
@@ -147,6 +147,179 @@ describe('Searching', () => {
     await new Promise((resolve) => setTimeout(resolve, 350))
 
     expect(searched).toBe(false)
+  })
+})
+
+describe('Saying which person you are', () => {
+  const open = async () => {
+    signedInWithRoles('Family.Viewer')
+    profileIs(profile)
+    renderApp(signedIn, '/family/morag')
+    await screen.findByRole('heading', { level: 1, name: 'Morag MacLeod' })
+  }
+
+  const linkIs = (personId: string, isApproved: boolean) =>
+    server.use(http.get('*/api/v1/me/link', () => HttpResponse.json({ personId, isApproved })))
+
+  it('sends the request and then says it is waiting', async () => {
+    let asked = false
+    await open()
+    server.use(
+      http.post('*/api/v1/people/morag/claim', () => {
+        asked = true
+        linkIs('morag', false)
+        return HttpResponse.json({ personId: 'morag', isApproved: false })
+      }),
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'This is me' }))
+
+    expect(await screen.findByText('Waiting for an admin to confirm this is you.')).toBeInTheDocument()
+    expect(asked).toBe(true)
+  })
+
+  it('can ask for someone else while still waiting', async () => {
+    linkIs('someone-else', false)
+    await open()
+
+    expect(await screen.findByRole('button', { name: 'This is me' })).toBeInTheDocument()
+  })
+
+  it('has no page of their own until approved', async () => {
+    linkIs('morag', false)
+    await open()
+
+    await screen.findByText('Waiting for an admin to confirm this is you.')
+    expect(screen.queryByRole('link', { name: 'My page' })).not.toBeInTheDocument()
+  })
+
+  it('confirms it on their own page, and links to it from the header', async () => {
+    linkIs('morag', true)
+    await open()
+
+    expect(await screen.findByText('This is you.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'My page' })).toHaveAttribute('href', '/family/morag')
+  })
+
+  it("doesn't offer it on other people's pages once linked", async () => {
+    linkIs('someone-else', true)
+    await open()
+
+    await screen.findByRole('link', { name: 'My page' })
+    expect(screen.queryByRole('button', { name: 'This is me' })).not.toBeInTheDocument()
+  })
+
+  it("doesn't call anyone's page theirs before they're linked", async () => {
+    await open()
+
+    await screen.findByRole('button', { name: 'This is me' })
+    expect(screen.queryByRole('link', { name: 'My page' })).not.toBeInTheDocument()
+  })
+
+  it('says why when the request is refused', async () => {
+    await open()
+    server.use(
+      http.post('*/api/v1/people/morag/claim', () =>
+        HttpResponse.json({ title: 'This account is already linked' }, { status: 409, headers: { 'Content-Type': 'application/problem+json' } }),
+      ),
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'This is me' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('This account is already linked')
+  })
+})
+
+describe('Linked accounts', () => {
+  const pending = {
+    accountId: 'a1',
+    displayName: 'Jean Campbell',
+    username: 'jean@example.test',
+    isApproved: false,
+    personId: 'morag',
+    personName: 'Morag MacLeod',
+  }
+
+  const linksAre = (...links: (typeof pending)[]) =>
+    server.use(http.get('*/api/v1/admin/account-links', () => HttpResponse.json(links)))
+
+  it('is closed to viewers', async () => {
+    signedInWithRoles('Family.Viewer')
+
+    renderApp(signedIn, '/people/accounts')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("You don't have access to this page.")
+  })
+
+  it('says so when nobody has asked', async () => {
+    signedInWithRoles('Family.Admin')
+    linksAre()
+
+    renderApp(signedIn, '/people/accounts')
+
+    expect(await screen.findByText('Nobody has asked to be linked yet.')).toBeInTheDocument()
+  })
+
+  it('shows who is asking, and approves them', async () => {
+    let approved = false
+    signedInWithRoles('Family.Admin')
+    linksAre(pending)
+    server.use(
+      http.post('*/api/v1/admin/account-links/a1/approve', () => {
+        approved = true
+        linksAre({ ...pending, isApproved: true })
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    renderApp(signedIn, '/people/accounts')
+
+    const row = (await screen.findByRole('link', { name: 'Morag MacLeod' })).closest('li')!
+    expect(row).toHaveTextContent('Jean Campbell (jean@example.test) says they are Morag MacLeod')
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Jean Campbell' }))
+
+    await waitFor(() => expect(row).toHaveTextContent('Jean Campbell (jean@example.test) is Morag MacLeod'))
+    expect(approved).toBe(true)
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Approve Jean Campbell' })).not.toBeInTheDocument())
+  })
+
+  it('removes a link after confirming', async () => {
+    let removed = false
+    signedInWithRoles('Family.Admin')
+    linksAre({ ...pending, isApproved: true })
+    server.use(
+      http.delete('*/api/v1/admin/account-links/a1', () => {
+        removed = true
+        linksAre()
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    renderApp(signedIn, '/people/accounts')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove Jean Campbell' }))
+    expect(removed).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, remove' }))
+
+    expect(await screen.findByText('Nobody has asked to be linked yet.')).toBeInTheDocument()
+  })
+
+  it('says so when an approval fails', async () => {
+    signedInWithRoles('Family.Admin')
+    linksAre(pending)
+    server.use(http.post('*/api/v1/admin/account-links/a1/approve', () => new HttpResponse(null, { status: 500 })))
+    renderApp(signedIn, '/people/accounts')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve Jean Campbell' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("This couldn't be approved.")
+  })
+
+  it('says so when the list cannot be loaded', async () => {
+    signedInWithRoles('Family.Admin')
+    server.use(http.get('*/api/v1/admin/account-links', () => new HttpResponse(null, { status: 500 })))
+
+    renderApp(signedIn, '/people/accounts')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("The linked accounts couldn't be loaded.")
   })
 })
 

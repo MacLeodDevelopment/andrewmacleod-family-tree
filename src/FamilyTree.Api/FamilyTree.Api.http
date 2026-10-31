@@ -38,6 +38,26 @@ Content-Type: application/json
 GET {{api}}/api/v1/admin/people?skip=0&take=50
 Authorization: Bearer {{token}}
 
+### Who the signed-in user has asked to be, or been approved as. 204 if neither.
+GET {{api}}/api/v1/me/link
+Authorization: Bearer {{token}}
+
+### Ask to be linked to a person: replace the ID. An admin must approve it.
+POST {{api}}/api/v1/people/00000000-0000-0000-0000-000000000000/claim
+Authorization: Bearer {{token}}
+
+### Requests to be linked, and links made so far
+GET {{api}}/api/v1/admin/account-links
+Authorization: Bearer {{token}}
+
+### Approve a request: replace the account ID
+POST {{api}}/api/v1/admin/account-links/00000000-0000-0000-0000-000000000000/approve
+Authorization: Bearer {{token}}
+
+### Remove a request or link: replace the account ID
+DELETE {{api}}/api/v1/admin/account-links/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{token}}
+
 ### Search as a family member: every word must match part of a name
 GET {{api}}/api/v1/people/search?q=morag macleod
 Authorization: Bearer {{token}}
