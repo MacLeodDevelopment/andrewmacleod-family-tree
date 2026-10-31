@@ -1,4 +1,6 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
 import { vi } from 'vitest'
 import App from '../App.tsx'
 import type { Auth } from '../shared/auth/auth.ts'
@@ -23,10 +25,17 @@ export function fakeAuth(overrides: Partial<Auth> = {}): Auth {
   }
 }
 
-export function renderApp(auth: Auth = fakeAuth()) {
+/** Renders the whole app at an address, with nothing remembered from other tests. */
+export function renderApp(auth: Auth = fakeAuth(), path = '/') {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
   return render(
     <AuthContext.Provider value={auth}>
-      <App />
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>
     </AuthContext.Provider>,
   )
 }

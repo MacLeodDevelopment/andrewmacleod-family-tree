@@ -253,7 +253,7 @@ h1 {
       'account account';
   }
 
-  .site-header > strong {
+  .site-nav {
     grid-area: title;
   }
 
@@ -306,6 +306,192 @@ button {
 
 button:hover {
   border-color: var(--link);
+}
+
+/* --------- NAVIGATION --------- */
+.site-nav {
+  display: flex;
+  align-items: baseline;
+  gap: 1.25rem;
+}
+
+.site-title {
+  color: var(--text);
+  font-weight: 700;
+}
+
+/* --------- PAGES --------- */
+h2 {
+  font-size: 1.35rem;
+  margin: 2rem 0 0.75rem;
+}
+
+.page-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.page-heading h1 {
+  margin-bottom: 0;
+}
+
+/* A link that does what a button does. */
+.button {
+  display: inline-block;
+  color: var(--text);
+  background-color: var(--card-bg);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.35rem 1rem;
+}
+
+.button:hover {
+  border-color: var(--link);
+  text-decoration: none;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.people-list {
+  list-style: none;
+}
+
+.people-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0 1rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.people-list-dates,
+.people-count,
+.field-hint {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.people-count {
+  margin-top: 0.75rem;
+}
+
+.page-buttons {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.person-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.25rem 1rem;
+}
+
+.person-facts dt {
+  color: var(--muted);
+}
+
+.person-facts dd {
+  grid-column: 2;
+}
+
+.timeline {
+  list-style: none;
+}
+
+.timeline li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+/* --------- FORMS --------- */
+.form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 32rem;
+  margin-top: 1.5rem;
+}
+
+.form h2 {
+  margin: 0;
+}
+
+.form fieldset {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.form legend {
+  padding: 0 0.4rem;
+  font-weight: 600;
+}
+
+.form label {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.form input,
+.form select {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background-color: var(--card-bg);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.35rem 0.6rem;
+}
+
+.form input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.form > button,
+.form fieldset button {
+  justify-self: start;
+}
+
+.form-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.field-error {
+  color: var(--danger);
+}
+
+.notice {
+  padding: 1rem;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--card-bg);
+}
+
+.notice ul {
+  margin: 0.5rem 0 0.75rem 1.25rem;
+}
+
+.danger-zone {
+  margin-top: 2.5rem;
+}
+
+.danger-zone .form-buttons {
+  margin-top: 0.75rem;
 }
 
 /* --------- API STATUS --------- */

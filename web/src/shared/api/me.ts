@@ -1,4 +1,6 @@
-import { apiUrl } from './apiUrl.ts'
+import { useQuery } from '@tanstack/react-query'
+import { useAuth } from '../auth/authContext.ts'
+import { useApi } from './client.ts'
 
 export interface Me {
   /** Display name from the user's profile; null if they don't have one. */
@@ -8,23 +10,16 @@ export interface Me {
   roles: string[]
 }
 
-/** The API refused or failed a request; `status` is the HTTP status code. */
-export class ApiError extends Error {
-  readonly status: number
+export const adminRole = 'Family.Admin'
 
-  constructor(status: number) {
-    super(`The API responded with ${status}.`)
-    this.status = status
-  }
-}
+/** Who the API says the signed-in user is, shared by everything that needs to know. */
+export function useMe() {
+  const auth = useAuth()
+  const api = useApi()
 
-/** Who the API says the signed-in user is, and their family roles. */
-export async function fetchMe(accessToken: string): Promise<Me> {
-  const response = await fetch(apiUrl('/api/v1/me'), {
-    headers: { Authorization: `Bearer ${accessToken}` },
+  return useQuery({
+    queryKey: ['me'],
+    queryFn: () => api<Me>('/api/v1/me'),
+    enabled: auth.user !== null,
   })
-  if (!response.ok) {
-    throw new ApiError(response.status)
-  }
-  return (await response.json()) as Me
 }
