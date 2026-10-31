@@ -11,3 +11,9 @@ public static class FamilyRoles
 
     public static readonly string[] All = [Viewer, Admin];
 }
+
+/// <summary>Named authorisation policies, for endpoints stricter than the default.</summary>
+public static class FamilyPolicies
+{
+    public const string Admin = "FamilyAdmin";
+}

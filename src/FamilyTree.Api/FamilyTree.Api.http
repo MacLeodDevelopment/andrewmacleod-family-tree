@@ -1,0 +1,37 @@
+# Try the people endpoints by hand, using VS Code's REST Client extension or Visual Studio.
+#
+# They need an access token for a Family.Admin. To get yours: sign in to the web app, open
+# the browser's dev tools, go to Network, click the `me` request, and copy the value after
+# "Bearer " in its Authorization header. Paste it below. It lasts about an hour. Don't
+# commit it, and remember this repo is public: use fictional people here.
+
+@api = http://localhost:5080
+@token = paste-your-access-token-here
+
+### Add a person
+POST {{api}}/api/v1/admin/people
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "sex": "Female",
+  "names": [
+    { "givenName": "Isla", "surname": "Campbell", "type": "Birth" },
+    { "givenName": "Isla", "surname": "MacLeod", "type": "Married" }
+  ]
+}
+
+### List people, a page at a time
+GET {{api}}/api/v1/admin/people?skip=0&take=50
+Authorization: Bearer {{token}}
+
+### Read one person: replace the ID with one from the list
+GET {{api}}/api/v1/admin/people/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{token}}
+
+### Refused: a person needs a given name
+POST {{api}}/api/v1/admin/people
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "names": [{ "surname": "MacLeod" }] }

@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/FamilyTree.Api/FamilyTree.Api.csproj" />
     <Project Path="src/FamilyTree.DbMigrator/FamilyTree.DbMigrator.csproj" />
+    <Project Path="src/FamilyTree.Domain/FamilyTree.Domain.csproj" />
     <Project Path="src/FamilyTree.Infrastructure/FamilyTree.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">

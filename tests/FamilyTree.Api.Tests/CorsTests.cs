@@ -38,6 +38,21 @@ public class CorsTests(ApiFactory factory) : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task The_family_tree_web_app_can_send_data_to_the_api()
+    {
+        var preflight = new HttpRequestMessage(HttpMethod.Options, "/api/v1/admin/people");
+        preflight.Headers.Add("Origin", SpaOrigin);
+        preflight.Headers.Add("Access-Control-Request-Method", "POST");
+        preflight.Headers.Add("Access-Control-Request-Headers", "authorization,content-type");
+
+        var response = await CreateClient().SendAsync(preflight, TestContext.Current.CancellationToken);
+
+        Assert.True(response.IsSuccessStatusCode, $"Preflight failed with {(int)response.StatusCode}");
+        Assert.Contains("POST", response.Headers.GetValues("Access-Control-Allow-Methods").Single());
+        Assert.Contains("content-type", response.Headers.GetValues("Access-Control-Allow-Headers").Single(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Other_websites_cannot_call_the_api_from_the_browser()
     {
         var request = new HttpRequestMessage(HttpMethod.Get, "/health");

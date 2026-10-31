@@ -6,8 +6,7 @@ using Microsoft.Extensions.Options;
 
 namespace FamilyTree.Api.Tests;
 
-public class DatabaseTests(ApiFactory factory, SqlServerContainer sqlServer)
-    : IClassFixture<ApiFactory>, IClassFixture<SqlServerContainer>
+public class DatabaseTests(ApiFactory factory, SqlServerContainer sqlServer) : IClassFixture<ApiFactory>
 {
     [Fact]
     public async Task Once_its_database_is_migrated_the_api_reports_ready()

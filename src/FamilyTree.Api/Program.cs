@@ -1,6 +1,7 @@
 using FamilyTree.Api.Account;
 using FamilyTree.Api.Authorization;
 using FamilyTree.Api.Database;
+using FamilyTree.Api.People;
 using FamilyTree.Api.RateLimiting;
 using FamilyTree.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
@@ -8,10 +9,15 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Identity.Web;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddFamilyTreeDatabase();
+
+// Enums travel as readable names ("Female"), never as numbers.
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
 
 // Two health checks: /health says the API is running (no dependencies, so it's quick
 // and reliable); /health/ready also checks the API can reach its database.
@@ -44,8 +50,8 @@ builder.Services.AddOptions<CorsOptions>()
         var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
         options.AddDefaultPolicy(policy => policy
             .WithOrigins(allowedOrigins)
-            .WithMethods("GET")
-            .WithHeaders("Authorization")
+            .WithMethods("GET", "POST")
+            .WithHeaders("Authorization", "Content-Type")
             .WithExposedHeaders("Retry-After"));
     });
 
@@ -64,7 +70,10 @@ builder.Services.AddAuthorizationBuilder()
     .SetFallbackPolicy(new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
         .RequireRole(FamilyRoles.All)
-        .Build());
+        .Build())
+    .AddPolicy(FamilyPolicies.Admin, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireRole(FamilyRoles.Admin));
 
 builder.Services.AddFamilyTreeRateLimiting();
 
@@ -87,7 +96,8 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check 
     .AllowAnonymous();
 
 app.MapGroup("/api/v1")
-    .MapMeEndpoints();
+    .MapMeEndpoints()
+    .MapPeopleEndpoints();
 
 app.Run();
 
