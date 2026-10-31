@@ -22,6 +22,31 @@ namespace FamilyTree.Infrastructure.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("FamilyTree.Domain.Family", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("Partner1Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("Partner2Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Partner1Id");
+
+                    b.HasIndex("Partner2Id");
+
+                    b.ToTable("Families", (string)null);
+                });
+
             modelBuilder.Entity("FamilyTree.Domain.Person", b =>
                 {
                     b.Property<Guid>("Id")
@@ -35,6 +60,58 @@ namespace FamilyTree.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("People", (string)null);
+                });
+
+            modelBuilder.Entity("FamilyTree.Domain.Family", b =>
+                {
+                    b.HasOne("FamilyTree.Domain.Person", null)
+                        .WithMany()
+                        .HasForeignKey("Partner1Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("FamilyTree.Domain.Person", null)
+                        .WithMany()
+                        .HasForeignKey("Partner2Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.OwnsMany("FamilyTree.Domain.ChildLink", "Children", b1 =>
+                        {
+                            b1.Property<Guid>("FamilyId")
+                                .HasColumnType("uniqueidentifier");
+
+                            b1.Property<Guid>("ChildId")
+                                .HasColumnType("uniqueidentifier");
+
+                            b1.Property<string>("Partner1Relationship")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("nvarchar(20)");
+
+                            b1.Property<string>("Partner2Relationship")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("nvarchar(20)");
+
+                            b1.Property<int>("Position")
+                                .HasColumnType("int");
+
+                            b1.HasKey("FamilyId", "ChildId");
+
+                            b1.HasIndex("ChildId");
+
+                            b1.ToTable("FamilyChildren", (string)null);
+
+                            b1.HasOne("FamilyTree.Domain.Person", null)
+                                .WithMany()
+                                .HasForeignKey("ChildId")
+                                .OnDelete(DeleteBehavior.Restrict)
+                                .IsRequired();
+
+                            b1.WithOwner()
+                                .HasForeignKey("FamilyId");
+                        });
+
+                    b.Navigation("Children");
                 });
 
             modelBuilder.Entity("FamilyTree.Domain.Person", b =>
