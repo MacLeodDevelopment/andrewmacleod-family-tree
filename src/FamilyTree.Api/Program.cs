@@ -1,14 +1,22 @@
 using FamilyTree.Api.Account;
 using FamilyTree.Api.Authorization;
+using FamilyTree.Api.Database;
 using FamilyTree.Api.RateLimiting;
+using FamilyTree.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Identity.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddHealthChecks();
+builder.Services.AddFamilyTreeDatabase();
+
+// Two health checks: /health says the API is running (no dependencies, so it's quick
+// and reliable); /health/ready also checks the API can reach its database.
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<FamilyTreeDbContext>("database", tags: [ReadinessTag]);
 
 // Every error response, including bare 401s, 404s and 429s, gets a body in the same
 // standard JSON shape (RFC 9457 "problem details"). Unexpected exceptions become a
@@ -74,9 +82,16 @@ app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
 
-app.MapHealthChecks("/health").AllowAnonymous();
+app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false }).AllowAnonymous();
+app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains(ReadinessTag) })
+    .AllowAnonymous();
 
 app.MapGroup("/api/v1")
     .MapMeEndpoints();
 
 app.Run();
+
+public partial class Program
+{
+    private const string ReadinessTag = "ready";
+}

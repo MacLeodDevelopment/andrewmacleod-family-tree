@@ -3,9 +3,12 @@
 A private, invite-only family tree for the MacLeod family, served at `family.andrewmacleod.com`.
 
 - `src/FamilyTree.Api` — ASP.NET Core (.NET 10) minimal API.
+- `src/FamilyTree.Infrastructure` — the database (EF Core) and how it's deployed.
+- `src/FamilyTree.DbMigrator` — a small tool that brings the database up to date (run by the pipeline, and locally).
 - `web/` — React + TypeScript single-page app built with Vite.
 - `tests/` — behaviour-focused API tests.
 - `infra/` — Azure infrastructure as Bicep.
+- `docker-compose.yml` — SQL Server for local development.
 
 > **This repository is public. Never commit real family data.**
 > People, photos, documents and GEDCOM files live only in Azure (SQL Database and private Blob Storage).
@@ -15,6 +18,7 @@ A private, invite-only family tree for the MacLeod family, served at `family.and
 
 - .NET 10 SDK (pinned in `global.json`)
 - Node.js 22.12 or later
+- Docker Desktop, for the local database and the database tests
 
 ## Run locally
 
@@ -23,7 +27,16 @@ Both halves need the sign-in settings (the Entra tenant ID and the app's client 
 - **API:** .NET user secrets. The API won't start without them.
 - **Web app:** `web/.env.local`. Without it, the page runs but sign-in is turned off.
 
-Start the API (http://localhost:5080):
+Start the local database (SQL Server in Docker, on localhost port 14333), and create or update its schema. Run the migrator again after pulling changes that include new migrations:
+
+```sh
+docker compose up -d
+dotnet run --project src/FamilyTree.DbMigrator -- --connection "Server=127.0.0.1,14333;Database=familytree;User Id=sa;Password=Local-dev-only-Pa55;TrustServerCertificate=True"
+```
+
+Use `127.0.0.1`, not `localhost`: the container only listens on IPv4, and SqlClient tries `localhost`'s IPv6 address first and times out (error 258). The connection string and password are for the local container only. The API's copy is in `appsettings.Development.json`. In Azure there are no database passwords at all (see [The database](#the-database)).
+
+Start the API (http://localhost:5080). http://localhost:5080/health/ready should say `Healthy` once it can reach the database:
 
 ```sh
 dotnet run --project src/FamilyTree.Api
@@ -125,6 +138,38 @@ The front end and API are on different origins, so the API has to allow the fron
 The double underscore is how ASP.NET Core maps environment variables onto nested configuration keys and array indexes. Any other website gets no CORS header, so a browser won't let its JavaScript read the API's responses. [`CorsTests.cs`](tests/FamilyTree.Api.Tests/CorsTests.cs) pins that behaviour.
 
 Locally, none of this is needed. The Vite dev server proxies `/health` (and later API paths) to `localhost:5080`, so the browser only ever talks to one origin.
+
+### The database
+
+The family tree's data lives in **Azure SQL Database**, Microsoft's managed SQL Server, accessed through **Entity Framework Core** (EF Core), .NET's standard ORM.
+
+**The resources** ([`infra/main.bicep`](infra/main.bicep)):
+- A SQL **server** (`familytree-sql-<random>`, UK South): a logical container that holds the database, its firewall and who administers it.
+- A **database**, `familytree`. It's **serverless**: it scales its compute with load, and **pauses** after an hour with no use.
+  - It's on Azure SQL's **free offer**: 100,000 vCore-seconds of compute and 32 GB of storage a month, at no cost. If the allowance ever runs out, it pauses until the next month rather than charging.
+  - **Waking up takes time.** The first request after a pause waits while the database resumes, up to a minute. The API's connection retries (`EnableRetryOnFailure` in [`SqlServerOptions.cs`](src/FamilyTree.Infrastructure/SqlServerOptions.cs)) and its generous connect timeout cover this.
+
+**No passwords: Microsoft Entra authentication only.** The server accepts no SQL logins (`azureADOnlyAuthentication`). Everything signs in with an Entra identity:
+- **The deploy identity** (`familytree-github-deploy`) is the server's **administrator**. The pipeline uses it to apply schema changes.
+- **The API's identity** (`familytree-api-identity`, the same managed identity it uses to pull images) is a **database user** with `db_datareader` and `db_datawriter`. It can read and write data, but not change tables, permissions or anything else. If the API were ever compromised, it couldn't drop the database.
+  - Its connection string ends `Authentication=Active Directory Managed Identity;User Id=<its client ID>`. Bicep sets it as `ConnectionStrings__FamilyTree`, and it contains no secret.
+- Your own Gmail-based Microsoft account can't be a SQL administrator; Azure SQL doesn't accept personal Microsoft accounts there. To look at the data directly, the usual route would be a cloud-only member account in the tenant (not set up).
+
+**Schema changes go through EF Core migrations, applied by the pipeline, never by the API.** A *migration* is a C# file, generated by EF Core from changes to the model, that alters the database schema (creates a table, adds a column). Migrations live in the Infrastructure project and are applied in order; the database records which it has.
+- [`DatabaseDeployment.cs`](src/FamilyTree.Infrastructure/DatabaseDeployment.cs) does two things, and the [`FamilyTree.DbMigrator`](src/FamilyTree.DbMigrator/Program.cs) tool runs it:
+  1. **`MigrateAsync`** applies any migrations the database doesn't have yet. Locally it also creates the database.
+  2. **`GrantReadWriteAsync`** makes sure the API's identity is a database user with read/write. It creates the user by its SID, which is derived from the identity's client ID, rather than `FROM EXTERNAL PROVIDER`. That avoids giving the SQL server permission to read your Entra directory.
+- **In the pipeline**, the **Database** job runs between Infrastructure and API, so the new API never meets an old schema:
+  - It signs in as the administrator (`Authentication=Active Directory Default`, which uses the Azure CLI's login).
+  - It opens the SQL firewall to the runner's own IP address for that job only, and always closes it, even if a step fails.
+  - It runs the migrator, with retries, because new firewall rules take a moment and a paused database takes a minute to resume.
+- **Locally**, you run the migrator yourself (see [Run locally](#run-locally)).
+
+**Network.** The SQL firewall admits Azure services (the `AllowAllWindowsAzureIps` rule), which is how the Container App reaches it. That rule technically admits *any* Azure customer's services, but the firewall is only the first gate: every connection still needs a valid Entra token for a user that exists in the database. The stricter alternative, a private network with a private endpoint, costs extra and isn't justified yet.
+
+**Health checks.** `/health` says the API process is up, without touching the database, so a paused database doesn't make the API look broken. `/health/ready` also checks the database (EF Core's `CanConnectAsync`); it returns 503 if the database can't be reached.
+
+**In the tests**, the database tests use **Testcontainers**: each run starts a real SQL Server in Docker, migrates it with the same `DatabaseDeployment` code, and throws it away afterwards ([`SqlServerContainer.cs`](tests/FamilyTree.Api.Tests/SqlServerContainer.cs)). Other tests get a connection string that points nowhere, so they stay fast. CI's Linux runners have Docker; locally, Docker Desktop must be running.
 
 ### Errors and rate limiting in the API
 
@@ -247,14 +292,16 @@ Pull requests run [`ci.yml`](.github/workflows/ci.yml): it builds, lints and tes
 
 1. **Test**: the same checks as a pull request, so nothing untested reaches Azure.
 2. **Infrastructure**: deploys `infra/main.bicep`. Before that, it looks up which API image is *currently running* and passes it in. Otherwise the template's placeholder image would replace the real API on every deploy. It also checks whether the API custom domain's certificate exists yet; if not, it runs Bicep a second time to bind the new certificate. This job collects Bicep's outputs (registry name, API and web addresses) for the later jobs.
-3. **API**: builds the image, pushes it to the registry tagged with the commit SHA, and points the Container App at it. Container Apps then starts a new *revision* (an immutable snapshot of the app's configuration and image). Once that revision is up, Container Apps moves the traffic to it.
+3. **Database**: applies any new migrations and makes sure the API's identity can read and write data, signed in as the SQL administrator, through a firewall opening for this runner only (see [The database](#the-database)).
+4. **API**: builds the image, pushes it to the registry tagged with the commit SHA, and points the Container App at it. Container Apps then starts a new *revision* (an immutable snapshot of the app's configuration and image). Once that revision is up, Container Apps moves the traffic to it.
    - The job waits until the new revision is healthy and taking 100% of the traffic, polling for up to 5 minutes.
    - It fails if the revision doesn't get there. Otherwise a revision that fails to start would leave the *old* one quietly serving, and the smoke tests would pass against the wrong version.
    - Smoke tests then check:
      - `/health` responds, retrying to allow for a cold start.
+     - `/health/ready` responds, which proves the API can reach the database as its own identity. It retries for a few minutes, in case the database is resuming.
      - `/api/v1/me` refuses an anonymous request with 401, which proves sign-in is enforced.
      - If a custom domain is set, the API returns the right CORS header for it.
-4. **Web app**: builds the front end with the API's address baked in (which also generates `staticwebapp.config.json`), and uploads `web/dist` to the Static Web App. Smoke tests then check:
+5. **Web app**: builds the front end with the API's address baked in (which also generates `staticwebapp.config.json`), and uploads `web/dist` to the Static Web App. Smoke tests then check:
    - The page loads and has the expected title.
    - The security headers are being served: the CSP forbids framing and allows exactly this build's API origin, plus `nosniff` and `noindex`.
    - A deep link (`/people/123`) serves the app.
@@ -299,6 +346,7 @@ The one-off setup for all of this is in [docs/setup-azure.md](docs/setup-azure.m
 | Setting | Where | Notes |
 |---|---|---|
 | Resource names, regions, sizes | [`infra/main.bicep`](infra/main.bicep) | Defaults are in the file. Nothing secret. |
+| Database connection (API) | Azure: `ConnectionStrings__FamilyTree` on the Container App, set by Bicep (managed identity, no password). Locally: `appsettings.Development.json` (the Docker container's throwaway password). | The API refuses to start without one. |
 | API rate limits | `RateLimiting:SignedInPermitsPerMinute` (default 120) and `RateLimiting:AnonymousPermitsPerMinute` (default 30), in [`RateLimitingExtensions.cs`](src/FamilyTree.Api/RateLimiting/RateLimitingExtensions.cs) | To change them in Azure without a code change, add `RateLimiting__SignedInPermitsPerMinute` (and so on) to the Container App's environment variables in `infra/main.bicep`. |
 | Which Azure account to deploy to | GitHub `production` environment variables (see above) | Identifiers, not credentials, but kept out of this public repo. |
 | Custom domain for the web app | GitHub `production` variable `WEB_CUSTOM_DOMAIN` | Empty or missing means no custom domain. Set it only once the DNS CNAME exists, because Azure validates the domain during the deploy. |
@@ -344,6 +392,7 @@ About £4–5 a month, almost all of it the container registry's Basic tier.
 - The Static Web App is on the Free tier.
 - The Container App costs nothing at this usage, because it scales to zero and the monthly free allowance covers the rest.
 - Logs fit in Log Analytics' free monthly allowance.
+- The database is on Azure SQL's free offer. It pauses when idle, and pauses rather than charging if the monthly allowance is ever used up.
 
 A budget alert on the resource group is worth having (setup guide, section 8).
 
@@ -392,6 +441,8 @@ These are mostly lessons learned the hard way.
   - Find the culprit with `dotnet list package --vulnerable --include-transitive`, and why it's there with `dotnet nuget why <project> <package>`. Usually the fix is to pin the patched version with a direct `PackageReference` and a comment saying when to remove it.
   - Microsoft.Identity.Web 4.16.1 currently needs two such pins, `System.Security.Cryptography.Pkcs` in the API project and `System.Security.Cryptography.Xml` in the test project. Packages that are part of the ASP.NET Core shared framework, such as `.Xml`, can't be pinned in the web project (warning NU1510); they're patched by updating the runtime.
 - **Can't sign in to Azure CLI: `AADSTS50076 … you must use multi-factor authentication`.** The tenant enforces MFA (Entra *security defaults*), and the CLI's session has expired. Run `az login --tenant d7ca0a01-3090-41f1-bb26-431ec7b60471` again.
+- **Don't take Microsoft.Data.SqlClient 7 without its Azure package.** EF Core 10 uses SqlClient 6, which has Microsoft Entra authentication built in. In SqlClient 7 that moved into a separate package, `Microsoft.Data.SqlClient.Extensions.Azure`. If a Dependabot PR (or a future EF Core) brings SqlClient 7, add that package too. Otherwise managed-identity connections fail in Azure, though nothing fails locally or in the tests, which use passwords.
+- **`az` write commands fail with `AADSTS50076` and a `--claims-challenge` suggestion, even straight after `az login`.** Azure now requires MFA for create, update and delete operations from the CLI, and a plain `az login` token may not carry proof of it. Run exactly the `az logout` and `az login … --claims-challenge …` commands the error prints. (The GitHub deploy identity is a managed identity, so this doesn't affect the pipeline.)
 - **This repo is public.** Code is fine; family data, exports and secrets are not. `.gitignore` blocks common genealogy file types as a safety net.
 
 ### Everyday tasks
@@ -418,7 +469,7 @@ az containerapp show -g rg-familytree -n familytree-api --query "properties.temp
 The app is being built in small iterations, one pull request each, so the PR history is the record of what changed and why. Coming next, roughly in order:
 
 - Hardening: security headers (including a Content Security Policy), rate limiting, consistent error responses.
-- A database (Azure SQL) for people, families and life events.
+- People, families and life events in the database, starting with people (iteration 5b).
 - An editing UI that only Andrew can use.
 - Search, profiles and tree views for viewers.
 - A privacy rule: details of living people are hidden from viewers.

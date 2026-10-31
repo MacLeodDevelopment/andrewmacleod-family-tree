@@ -59,7 +59,9 @@ public class AccountTests(ApiFactory factory) : IClassFixture<ApiFactory>
     public void The_api_will_not_start_without_its_sign_in_settings()
     {
         using var unconfigured = new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder => builder.UseEnvironment(ApiFactory.TestEnvironment));
+            .WithWebHostBuilder(builder => builder
+                .UseEnvironment(ApiFactory.TestEnvironment)
+                .UseSetting("ConnectionStrings:FamilyTree", ApiFactory.UnreachableDatabase));
 
         var error = Assert.Throws<OptionsValidationException>(() => unconfigured.CreateClient());
 

@@ -1,0 +1,18 @@
+# Local development database: `docker compose up -d`, then create or update the schema
+# with the migrator (see README, "Run locally").
+#
+# The password is for this local container only, which listens on localhost alone.
+# Azure SQL uses Microsoft Entra authentication and has no passwords at all.
+services:
+  sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Local-dev-only-Pa55"
+    ports:
+      - "127.0.0.1:14333:1433"
+    volumes:
+      - familytree-sql:/var/opt/mssql
+
+volumes:
+  familytree-sql:
