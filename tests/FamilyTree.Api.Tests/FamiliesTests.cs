@@ -285,6 +285,144 @@ public class FamiliesTests(ApiFactory factory, SqlServerContainer sqlServer) : I
         Assert.Equal(HttpStatusCode.NoContent, afterUnlinking.StatusCode);
     }
 
+    private static Task<HttpResponseMessage> NamePartnerAsync(HttpClient client, Guid family, Guid partner, string relationship = "Biological") =>
+        client.PostAsJsonAsync($"{Families}/{family}/partners", new { partnerId = partner, relationship }, Cancellation);
+
+    private static Task<FamilyResponse?> ReadAsync(HttpClient client, Guid family) =>
+        client.GetFromJsonAsync<FamilyResponse>($"{Families}/{family}", Cancellation);
+
+    [Fact]
+    public async Task An_unknown_father_can_be_named_later_and_becomes_a_parent_of_the_children()
+    {
+        var client = AdminClient();
+        var (mother, father, child) = (await PersonAsync(client), await PersonAsync(client), await PersonAsync(client));
+        var family = await FamilyAsync(client, mother, type: "None");
+        await AddChildAsync(client, family, child);
+
+        var named = await NamePartnerAsync(client, family, father, "Presumed");
+
+        Assert.Equal(HttpStatusCode.OK, named.StatusCode);
+        var saved = await ReadAsync(client, family);
+        Assert.Equal(father, saved!.Partner2Id);
+        Assert.Equal(new Child(child, "Biological", "Presumed"), Assert.Single(saved.Children));
+    }
+
+    [Fact]
+    public async Task The_first_partner_can_be_the_unknown_one()
+    {
+        var client = AdminClient();
+        var (father, mother, child) = (await PersonAsync(client), await PersonAsync(client), await PersonAsync(client));
+        var family = await FamilyAsync(client, null, father);
+        await AddChildAsync(client, family, child);
+
+        await NamePartnerAsync(client, family, mother);
+
+        var saved = await ReadAsync(client, family);
+        Assert.Equal(mother, saved!.Partner1Id);
+        Assert.Equal("Biological", Assert.Single(saved.Children).Partner1Relationship);
+    }
+
+    [Fact]
+    public async Task A_partner_cannot_be_named_when_it_would_break_the_tree()
+    {
+        var client = AdminClient();
+        var (parent, child, grandchild, stranger) = (
+            await PersonAsync(client), await PersonAsync(client), await PersonAsync(client), await PersonAsync(client));
+        var family = await FamilyAsync(client, parent);
+        await AddChildAsync(client, family, child);
+        await AddChildAsync(client, await FamilyAsync(client, child), grandchild);
+
+        await AssertRefusedAsync(await NamePartnerAsync(client, family, parent), "partnerId");
+        await AssertRefusedAsync(await NamePartnerAsync(client, family, child), "partnerId");
+        await AssertRefusedAsync(await NamePartnerAsync(client, family, grandchild), "partnerId");
+        await AssertRefusedAsync(await NamePartnerAsync(client, family, Guid.NewGuid()), "partnerId");
+        Assert.Equal(HttpStatusCode.OK, (await NamePartnerAsync(client, family, stranger)).StatusCode);
+        await AssertRefusedAsync(await NamePartnerAsync(client, family, await PersonAsync(client)), "partnerId");
+    }
+
+    [Fact]
+    public async Task A_partnerships_type_can_be_corrected()
+    {
+        var client = AdminClient();
+        var family = await FamilyAsync(client, await PersonAsync(client), type: "Unknown");
+
+        var changed = await client.PutAsJsonAsync($"{Families}/{family}", new { type = "Cohabiting" }, Cancellation);
+
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        Assert.Equal("Cohabiting", (await ReadAsync(client, family))!.Type);
+    }
+
+    [Fact]
+    public async Task Removing_a_partner_leaves_the_children_with_the_other_partner()
+    {
+        var client = AdminClient();
+        var (mother, wrongFather, child) = (await PersonAsync(client), await PersonAsync(client), await PersonAsync(client));
+        var family = await FamilyAsync(client, mother, wrongFather);
+        await AddChildAsync(client, family, child);
+
+        var removed = await client.DeleteAsync($"{Families}/{family}/partners/{wrongFather}", Cancellation);
+
+        Assert.Equal(HttpStatusCode.NoContent, removed.StatusCode);
+        var saved = await ReadAsync(client, family);
+        Assert.Equal(mother, saved!.Partner1Id);
+        Assert.Null(saved.Partner2Id);
+        Assert.Equal(new Child(child, "Biological", "Unknown"), Assert.Single(saved.Children));
+    }
+
+    [Fact]
+    public async Task Removing_a_partner_from_a_family_with_no_children_removes_the_family()
+    {
+        var client = AdminClient();
+        var (first, second) = (await PersonAsync(client), await PersonAsync(client));
+        var family = await FamilyAsync(client, first, second);
+
+        await client.DeleteAsync($"{Families}/{family}/partners/{second}", Cancellation);
+
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"{Families}/{family}", Cancellation)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"{People}/{second}", Cancellation)).StatusCode);
+    }
+
+    [Fact]
+    public async Task The_only_known_parent_of_children_cannot_be_removed()
+    {
+        var client = AdminClient();
+        var (parent, child) = (await PersonAsync(client), await PersonAsync(client));
+        var family = await FamilyAsync(client, parent);
+        await AddChildAsync(client, family, child);
+
+        var response = await client.DeleteAsync($"{Families}/{family}/partners/{parent}", Cancellation);
+
+        await AssertRefusedAsync(response, "partnerId");
+    }
+
+    [Fact]
+    public async Task Someone_who_is_not_a_partner_cannot_be_removed_as_one()
+    {
+        var client = AdminClient();
+        var family = await FamilyAsync(client, await PersonAsync(client), await PersonAsync(client));
+
+        var response = await client.DeleteAsync($"{Families}/{family}/partners/{Guid.NewGuid()}", Cancellation);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Viewers_cannot_change_partnerships()
+    {
+        var api = Api();
+        var (admin, viewer) = (api.CreateClientFor(Admin), api.CreateClientFor(Viewer));
+        var partner = await PersonAsync(admin);
+        var family = await FamilyAsync(admin, await PersonAsync(admin), partner);
+
+        var change = await viewer.PutAsJsonAsync($"{Families}/{family}", new { type = "None" }, Cancellation);
+        var name = await NamePartnerAsync(viewer, family, partner);
+        var remove = await viewer.DeleteAsync($"{Families}/{family}/partners/{partner}", Cancellation);
+
+        Assert.Equal(HttpStatusCode.Forbidden, change.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, name.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, remove.StatusCode);
+    }
+
     [Fact]
     public async Task Deleting_a_family_leaves_the_people_in_it()
     {

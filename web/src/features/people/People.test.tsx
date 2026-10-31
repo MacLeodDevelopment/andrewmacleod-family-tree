@@ -780,6 +780,246 @@ describe("A person's family", () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('This would make someone their own ancestor.')
   })
 
+  const anna_alone: Family = {
+    id: 'birth',
+    partner1Id: 'anna',
+    partner2Id: null,
+    type: 'None',
+    children: [{ childId: 'ewan', partner1Relationship: 'Biological', partner2Relationship: 'Unknown' }],
+  }
+
+  it('names an unknown parent, alongside the parent already known', async () => {
+    let sent: unknown
+    familiesAre({ asChild: [anna_alone], people: [ewan, anna] })
+    await openEwan()
+    searchFinds(rory)
+    server.use(
+      http.post('*/api/v1/admin/families/birth/partners', async ({ request }) => {
+        sent = await request.json()
+        familiesAre({ asChild: [{ ...anna_alone, partner2Id: 'rory' }], people: [ewan, anna, rory] })
+        return HttpResponse.json({})
+      }),
+    )
+
+    click('Add a parent')
+    await choose(/Rory/)
+    expect(screen.getByLabelText('Alongside')).toHaveValue('birth')
+    type('Relationship to Ewan MacLeod', 'Presumed')
+    click('Save')
+
+    expect(await screen.findByRole('link', { name: 'Rory MacLeod' })).toBeInTheDocument()
+    expect(sent).toEqual({ partnerId: 'rory', relationship: 'Presumed' })
+  })
+
+  it('warns when a new parent would also become the parent of brothers and sisters', async () => {
+    familiesAre({
+      asChild: [
+        {
+          ...anna_alone,
+          children: [...anna_alone.children, { childId: 'flora', partner1Relationship: 'Biological', partner2Relationship: 'Unknown' }],
+        },
+      ],
+      people: [ewan, anna, flora],
+    })
+    await openEwan()
+
+    click('Add a parent')
+
+    expect(screen.getByText(/parent of everyone in this family/)).toBeInTheDocument()
+  })
+
+  it('records a second set of parents as a new family', async () => {
+    let sent: unknown
+    familiesAre({ asChild: [{ ...anna_alone, partner2Id: 'flora' }], people: [ewan, anna, flora] })
+    await openEwan()
+    searchFinds(rory)
+    server.use(
+      http.post('*/api/v1/admin/families', async ({ request }) => {
+        sent = await request.json()
+        return HttpResponse.json({}, { status: 201 })
+      }),
+    )
+
+    click('Add a parent')
+    await choose(/Rory/)
+    expect(within(screen.getByLabelText('Alongside')).getAllByRole('option')).toHaveLength(1)
+    type('Relationship to Ewan MacLeod', 'Adopted')
+    click('Save')
+
+    await waitFor(() =>
+      expect(sent).toEqual({
+        partner1Id: 'rory',
+        type: 'Unknown',
+        children: [{ childId: 'ewan', partner1Relationship: 'Adopted' }],
+      }),
+    )
+  })
+
+  it('adds a brother or sister to the family chosen', async () => {
+    let sent: unknown
+    familiesAre({ asChild: [anna_alone], people: [ewan, anna] })
+    await openEwan()
+    searchFinds(flora)
+    server.use(
+      http.post('*/api/v1/admin/families/birth/children', async ({ request }) => {
+        sent = await request.json()
+        return HttpResponse.json({}, { status: 201 })
+      }),
+    )
+
+    click('Add a brother or sister')
+    await choose(/Flora/)
+    click('Save')
+
+    await waitFor(() =>
+      expect(sent).toEqual({ childId: 'flora', partner1Relationship: 'Biological', partner2Relationship: 'Biological' }),
+    )
+  })
+
+  it('only offers a brother or sister once there are parents to share', async () => {
+    await openEwan()
+
+    expect(screen.queryByRole('button', { name: 'Add a brother or sister' })).not.toBeInTheDocument()
+  })
+
+  it('corrects the type of a partnership', async () => {
+    let sent: unknown
+    const marriage: Family = { id: 'f', partner1Id: 'ewan', partner2Id: 'ishbel', type: 'Unknown', children: [] }
+    familiesAre({ asPartner: [marriage], people: [ewan, ishbel] })
+    await openEwan()
+    server.use(
+      http.put('*/api/v1/admin/families/f', async ({ request }) => {
+        sent = await request.json()
+        familiesAre({ asPartner: [{ ...marriage, type: 'Marriage' }], people: [ewan, ishbel] })
+        return HttpResponse.json({})
+      }),
+    )
+
+    click('Change partnership with Ishbel Campbell')
+    type('Type of partnership', 'Marriage')
+    click('Save')
+
+    expect(await screen.findByRole('heading', { level: 3, name: /· Marriage/ })).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('form', { name: /Change partnership/ })).not.toBeInTheDocument())
+    expect(sent).toEqual({ type: 'Marriage' })
+  })
+
+  it('undoes a partnership only after confirming, keeping the children with this person', async () => {
+    let removed = false
+    const family: Family = {
+      id: 'f',
+      partner1Id: 'ewan',
+      partner2Id: 'ishbel',
+      type: 'Marriage',
+      children: [{ childId: 'calum', partner1Relationship: 'Biological', partner2Relationship: 'Biological' }],
+    }
+    familiesAre({ asPartner: [family], people: [ewan, ishbel, calum] })
+    await openEwan()
+    server.use(
+      http.delete('*/api/v1/admin/families/f/partners/ishbel', () => {
+        removed = true
+        familiesAre({ asPartner: [{ ...family, partner2Id: null }], people: [ewan, calum] })
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    click('Remove partnership with Ishbel Campbell')
+    expect(screen.getByText(/The children stay with Ewan MacLeod/)).toBeInTheDocument()
+    expect(removed).toBe(false)
+    click('Yes, remove')
+
+    expect(await screen.findByRole('heading', { level: 3, name: /With someone unknown/ })).toBeInTheDocument()
+    expect(removed).toBe(true)
+  })
+
+  it('takes a child out of a family', async () => {
+    const family: Family = {
+      id: 'f',
+      partner1Id: 'ewan',
+      partner2Id: null,
+      type: 'None',
+      children: [{ childId: 'calum', partner1Relationship: 'Biological', partner2Relationship: 'Unknown' }],
+    }
+    familiesAre({ asPartner: [family], people: [ewan, calum] })
+    await openEwan()
+    server.use(
+      http.delete('*/api/v1/admin/families/f/children/calum', () => {
+        familiesAre({ asPartner: [{ ...family, children: [] }], people: [ewan] })
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    click('Remove Calum MacLeod from this family')
+    click('Yes, remove')
+
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'Calum MacLeod' })).not.toBeInTheDocument())
+  })
+
+  it('takes this person out of the family they are a child of', async () => {
+    familiesAre({ asChild: [anna_alone], people: [ewan, anna] })
+    await openEwan()
+    server.use(
+      http.delete('*/api/v1/admin/families/birth/children/ewan', () => {
+        familiesAre({})
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    click('Remove from these parents: Anna MacLeod')
+    click('Yes, remove')
+
+    expect(await screen.findByText('No family recorded yet.')).toBeInTheDocument()
+  })
+
+  it('removes an empty family with an unknown partner', async () => {
+    let removed = false
+    familiesAre({
+      asPartner: [{ id: 'alone', partner1Id: 'ewan', partner2Id: null, type: 'None', children: [] }],
+      people: [ewan],
+    })
+    await openEwan()
+    server.use(
+      http.delete('*/api/v1/admin/families/alone', () => {
+        removed = true
+        familiesAre({})
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    click('Remove partnership with someone unknown')
+    click('Yes, remove')
+
+    expect(await screen.findByText('No family recorded yet.')).toBeInTheDocument()
+    expect(removed).toBe(true)
+  })
+
+  it("shows the API's reason when a link can't be undone", async () => {
+    const family: Family = { id: 'f', partner1Id: 'ewan', partner2Id: 'ishbel', type: 'Marriage', children: [] }
+    familiesAre({ asPartner: [family], people: [ewan, ishbel] })
+    await openEwan()
+    server.use(
+      http.delete('*/api/v1/admin/families/f/partners/ishbel', () =>
+        HttpResponse.json({ errors: { partnerId: ['A family needs at least one known partner.'] } }, { status: 400, ...problemJson }),
+      ),
+    )
+
+    click('Remove partnership with Ishbel Campbell')
+    click('Yes, remove')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('A family needs at least one known partner.')
+  })
+
+  it('can back out of undoing a link', async () => {
+    const family: Family = { id: 'f', partner1Id: 'ewan', partner2Id: 'ishbel', type: 'Marriage', children: [] }
+    familiesAre({ asPartner: [family], people: [ewan, ishbel] })
+    await openEwan()
+
+    click('Remove partnership with Ishbel Campbell')
+    click('Cancel')
+
+    expect(screen.queryByRole('button', { name: 'Yes, remove' })).not.toBeInTheDocument()
+  })
+
   it('can back out of adding a relative', async () => {
     await openEwan()
 

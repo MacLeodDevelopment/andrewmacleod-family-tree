@@ -5,6 +5,7 @@ import {
   familiesUrl,
   otherPartner,
   parentRelationships,
+  parentsOf,
   partnershipTypes,
   refreshFamilies,
   type Family,
@@ -15,7 +16,7 @@ import { PersonPicker } from './PersonPicker.tsx'
 import { fullName, type Person } from './people.ts'
 
 /** Why the API refused, which is usually a rule such as nobody being their own ancestor. */
-function SaveError({ error }: { error: Error | null }) {
+export function SaveError({ error }: { error: Error | null }) {
   if (!error) {
     return null
   }
@@ -109,6 +110,146 @@ export function AddPartnerForm({ person, onDone }: AddRelativeProps) {
 
 /** A new family, for a child whose other parent isn't known and who has no such family yet. */
 const newFamily = 'new'
+
+interface AddToFamiliesProps extends AddRelativeProps {
+  /** The person's families as a child. */
+  families: Family[]
+  people: Person[]
+}
+
+/**
+ * Adds a parent: alongside a parent already known, or in a new family, which is how a second
+ * set of parents is recorded for someone adopted or fostered.
+ */
+export function AddParentForm({ person, families, people, onDone }: AddToFamiliesProps) {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  const openFamilies = families.filter((family) => family.partner1Id === null || family.partner2Id === null)
+  const [parentId, setParentId] = useState<string | null>(null)
+  const [familyId, setFamilyId] = useState(openFamilies[0]?.id ?? newFamily)
+  const [relationship, setRelationship] = useState<ParentRelationship>('Biological')
+  const family = openFamilies.find((candidate) => candidate.id === familyId)
+
+  const save = useMutation({
+    mutationFn: () =>
+      family
+        ? api<Family>(`${familiesUrl}/${family.id}/partners`, {
+            method: 'POST',
+            body: JSON.stringify({ partnerId: parentId, relationship }),
+          })
+        : api<Family>(familiesUrl, {
+            method: 'POST',
+            body: JSON.stringify({
+              partner1Id: parentId,
+              type: 'Unknown',
+              children: [{ childId: person.id, partner1Relationship: relationship }],
+            }),
+          }),
+    onSuccess: async () => {
+      await refreshFamilies(queryClient)
+      onDone()
+    },
+  })
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    save.mutate()
+  }
+
+  const others = family ? family.children.length - 1 : 0
+
+  return (
+    <form className="form" aria-label="Add a parent" onSubmit={submit} noValidate>
+      <h3>Add a parent</h3>
+      <PersonPicker excludeId={person.id} chosenId={parentId} onChoose={setParentId} />
+
+      <label>
+        Alongside
+        <select value={familyId} onChange={(event) => setFamilyId(event.target.value)}>
+          {openFamilies.map((candidate) => (
+            <option key={candidate.id} value={candidate.id}>
+              {parentsOf(candidate, people)}
+            </option>
+          ))}
+          <option value={newFamily}>Nobody: a new set of parents</option>
+        </select>
+      </label>
+
+      <RelationshipSelect label={`Relationship to ${fullName(person)}`} value={relationship} onChange={setRelationship} />
+      {others > 0 && (
+        <p className="field-hint">They'll become a parent of everyone in this family, with this relationship.</p>
+      )}
+
+      <SaveError error={save.error} />
+
+      <div className="form-buttons">
+        <button type="submit" disabled={!parentId || save.isPending}>
+          Save
+        </button>
+        <button type="button" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
+
+/** Adds a brother or sister: another child of one of the person's families. */
+export function AddSiblingForm({ person, families, people, onDone }: AddToFamiliesProps) {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  const [siblingId, setSiblingId] = useState<string | null>(null)
+  const [familyId, setFamilyId] = useState(families[0].id)
+  const [relationship, setRelationship] = useState<ParentRelationship>('Biological')
+
+  const save = useMutation({
+    mutationFn: () =>
+      api<Family>(`${familiesUrl}/${familyId}/children`, {
+        method: 'POST',
+        body: JSON.stringify({ childId: siblingId, partner1Relationship: relationship, partner2Relationship: relationship }),
+      }),
+    onSuccess: async () => {
+      await refreshFamilies(queryClient)
+      onDone()
+    },
+  })
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    save.mutate()
+  }
+
+  return (
+    <form className="form" aria-label="Add a brother or sister" onSubmit={submit} noValidate>
+      <h3>Add a brother or sister</h3>
+      <PersonPicker excludeId={person.id} chosenId={siblingId} onChoose={setSiblingId} />
+
+      <label>
+        Child of
+        <select value={familyId} onChange={(event) => setFamilyId(event.target.value)}>
+          {families.map((family) => (
+            <option key={family.id} value={family.id}>
+              {parentsOf(family, people)}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <RelationshipSelect label="Relationship to these parents" value={relationship} onChange={setRelationship} />
+
+      <SaveError error={save.error} />
+
+      <div className="form-buttons">
+        <button type="submit" disabled={!siblingId || save.isPending}>
+          Save
+        </button>
+        <button type="button" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
 
 export function AddChildForm({
   person,

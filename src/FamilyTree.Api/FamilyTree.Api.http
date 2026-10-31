@@ -113,6 +113,29 @@ Authorization: Bearer {{token}}
 DELETE {{api}}/api/v1/admin/families/00000000-0000-0000-0000-000000000000/children/00000000-0000-0000-0000-000000000000
 Authorization: Bearer {{token}}
 
+### Change the type of a partnership: Unknown, Marriage, CivilPartnership, Cohabiting or None
+PUT {{api}}/api/v1/admin/families/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "type": "Marriage"
+}
+
+### Name a family's unknown partner. The relationship applies to all the family's children.
+POST {{api}}/api/v1/admin/families/00000000-0000-0000-0000-000000000000/partners
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "partnerId": "00000000-0000-0000-0000-000000000000",
+  "relationship": "Biological"
+}
+
+### Take a partner out of a family: family ID, then person ID. The family goes too if it has no children.
+DELETE {{api}}/api/v1/admin/families/00000000-0000-0000-0000-000000000000/partners/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{token}}
+
 ### Delete a family and its child links. The people aren't deleted.
 DELETE {{api}}/api/v1/admin/families/00000000-0000-0000-0000-000000000000
 Authorization: Bearer {{token}}
