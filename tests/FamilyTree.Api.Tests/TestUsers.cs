@@ -10,12 +10,12 @@ using Microsoft.Extensions.Options;
 namespace FamilyTree.Api.Tests;
 
 /// <summary>A pretend signed-in user. Null name or username means the token doesn't carry one.</summary>
-public sealed record TestUser(string? Name = null, string? Username = null, string[]? Roles = null);
+public sealed record TestUser(string? Name = null, string? Username = null, string[]? Roles = null, string? ObjectId = null);
 
 /// <summary>
 /// Signs requests in as a pretend user, standing in for Microsoft Entra ID, which the
 /// tests can't reach. The user's details become claims shaped like those in a real
-/// Entra access token ("name", "preferred_username" and "roles").
+/// Entra access token ("name", "preferred_username", "oid" and "roles").
 /// </summary>
 public static class TestUsers
 {
@@ -70,6 +70,10 @@ public static class TestUsers
             if (user.Username is not null)
             {
                 claims.Add(new Claim("preferred_username", user.Username));
+            }
+            if (user.ObjectId is not null)
+            {
+                claims.Add(new Claim("oid", user.ObjectId));
             }
             claims.AddRange((user.Roles ?? []).Select(role => new Claim("roles", role)));
 

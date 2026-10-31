@@ -22,6 +22,32 @@ namespace FamilyTree.Infrastructure.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("FamilyTree.Domain.AccountLink", b =>
+                {
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DisplayName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("IsApproved")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("PersonId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Username")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.HasKey("AccountId");
+
+                    b.HasIndex("PersonId");
+
+                    b.ToTable("AccountLinks", (string)null);
+                });
+
             modelBuilder.Entity("FamilyTree.Domain.Family", b =>
                 {
                     b.Property<Guid>("Id")
@@ -60,6 +86,15 @@ namespace FamilyTree.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("People", (string)null);
+                });
+
+            modelBuilder.Entity("FamilyTree.Domain.AccountLink", b =>
+                {
+                    b.HasOne("FamilyTree.Domain.Person", null)
+                        .WithMany()
+                        .HasForeignKey("PersonId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("FamilyTree.Domain.Family", b =>

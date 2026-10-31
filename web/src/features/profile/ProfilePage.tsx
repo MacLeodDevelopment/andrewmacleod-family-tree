@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router'
 import { ApiError, useApi } from '../../shared/api/client.ts'
 import { adminRole, useMe } from '../../shared/api/me.ts'
 import { partnershipTypes, type ParentRelationship } from '../people/families.ts'
+import { ThisIsMe } from './ThisIsMe.tsx'
 import { profilesUrl, summaryDates, type PersonSummary, type Profile, type ProfileEvent, type ProfilePartnership } from './profile.ts'
 
 /** Someone's life and closest family, read-only, for every family member. */
@@ -56,6 +57,8 @@ function ProfileDetails({ profile }: { profile: Profile }) {
           Also known as {otherNames.map((name) => `${nameText(name)} (${name.type.toLowerCase()})`).join(', ')}
         </p>
       )}
+
+      <ThisIsMe personId={profile.id} />
 
       <h2>Life</h2>
       {isPrivate && <p>Dates and places are hidden, because this person may be living.</p>}
