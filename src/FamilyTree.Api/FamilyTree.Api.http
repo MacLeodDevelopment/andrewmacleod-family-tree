@@ -1,12 +1,18 @@
 # Try the people endpoints by hand, using VS Code's REST Client extension or Visual Studio.
 #
-# They need an access token for a Family.Admin. To get yours: sign in to the web app, open
-# the browser's dev tools, go to Network, click the `me` request, and copy the value after
-# "Bearer " in its Authorization header. Paste it below. It lasts about an hour. Don't
-# commit it, and remember this repo is public: use fictional people here.
+# They need an access token for a Family.Admin, read from a git-ignored file so it never
+# sits in this tracked file (this repo is public):
+#
+#   1. Sign in to the web app, open the browser's dev tools, go to Network, click the `me`
+#      request, and copy the value after "Bearer " in its Authorization header.
+#   2. Put it in src/FamilyTree.Api/.env, next to this file, as one line:
+#      FAMILYTREE_TOKEN=<the token>
+#
+# It lasts about an hour. Use fictional people here for now.
 
-@api = http://localhost:5080
-@token = paste-your-access-token-here
+#@api = http://localhost:5080
+@api = https://api.family.andrewmacleod.com
+@token = {{$dotenv FAMILYTREE_TOKEN}}
 
 ### Add a person
 POST {{api}}/api/v1/admin/people
@@ -26,7 +32,7 @@ GET {{api}}/api/v1/admin/people?skip=0&take=50
 Authorization: Bearer {{token}}
 
 ### Read one person: replace the ID with one from the list
-GET {{api}}/api/v1/admin/people/00000000-0000-0000-0000-000000000000
+GET {{api}}/api/v1/admin/people/01a191bb-71f7-7816-930b-25f3daecd1a9
 Authorization: Bearer {{token}}
 
 ### Refused: a person needs a given name
