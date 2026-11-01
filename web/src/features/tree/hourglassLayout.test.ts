@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Graph, GraphChild, GraphFamily, GraphPerson } from './graph.ts'
-import { cardHeight, cardWidth, hourglassLayout, type TreeCard, type TreeLayout } from './hourglassLayout.ts'
+import { cardHeight, cardWidth, detailLineHeight, hourglassLayout, type TreeCard, type TreeLayout } from './hourglassLayout.ts'
 
 const person = (id: string): GraphPerson => ({ id, name: id, born: null, died: null, isHalfSibling: false })
+const longDate = 'between 12 September 1870 and 12 September 1875'
 
 const child = (childId: string, to1: GraphChild['partner1Relationship'] = 'Biological', to2 = to1): GraphChild => ({
   childId,
@@ -34,6 +35,11 @@ function expectNoOverlaps(layout: TreeLayout) {
   const overlaps = (a: TreeCard, b: TreeCard) =>
     a !== b && Math.abs(a.x - b.x) < cardWidth && Math.abs(a.y - b.y) < cardHeight
   expect(layout.cards.filter((a) => layout.cards.some((b) => overlaps(a, b)))).toEqual([])
+  for (const a of layout.cards) {
+    for (const b of layout.cards.filter((other) => other.y > a.y)) {
+      expect(a.y + a.height).toBeLessThan(b.y)
+    }
+  }
 }
 
 const remarried = graph('hub', [
@@ -81,7 +87,7 @@ describe('The hourglass layout', () => {
       expect(c.x).toBeGreaterThanOrEqual(0)
       expect(c.y).toBeGreaterThanOrEqual(0)
       expect(c.x + cardWidth).toBeLessThanOrEqual(layout.width)
-      expect(c.y + cardHeight).toBeLessThanOrEqual(layout.height)
+      expect(c.y + c.height).toBeLessThanOrEqual(layout.height)
     }
   })
 
@@ -138,6 +144,40 @@ describe('The hourglass layout', () => {
     const layout = hourglassLayout(graph('child', [family('f', 'mum', 'dad', [child('child', to1, to2)])]))
 
     expect(layout.lines.find((line) => line.key === 'f:child')?.style).toBe(style)
+  })
+
+  describe('with long dates', () => {
+    const tree: Graph = {
+      ...graph('child', [family('f', 'mum', 'dad', [child('child')])]),
+    }
+    tree.people = tree.people.map((p) => (p.id === 'mum' ? { ...p, born: longDate, died: longDate } : p))
+
+    it('wraps them between words, losing nothing', () => {
+      const { details } = card(hourglassLayout(tree), 'mum')
+
+      expect(details.length).toBeGreaterThan(2)
+      expect(details.join(' ')).toBe(`b. ${longDate} d. ${longDate}`)
+      expect(Math.max(...details.map((line) => line.length))).toBeLessThanOrEqual(24)
+    })
+
+    it('makes the whole row tall enough for them', () => {
+      const layout = hourglassLayout(tree)
+      const mum = card(layout, 'mum')
+
+      expect(mum.height).toBeGreaterThanOrEqual(44 + (mum.details.length - 1) * detailLineHeight + 6)
+      expect(card(layout, 'dad').height).toBe(mum.height)
+      expect(card(layout, 'child').height).toBe(cardHeight)
+      expectNoOverlaps(layout)
+    })
+
+    it('starts the lines to children below the tall cards', () => {
+      const layout = hourglassLayout(tree)
+      const line = layout.lines.find((l) => l.key === 'f:child')!
+      const mum = card(layout, 'mum')
+      const bus = Number(line.path.split(' ')[4])
+
+      expect(bus).toBeGreaterThan(mum.y + mum.height)
+    })
   })
 
   it('ignores the relationship to an unknown parent', () => {

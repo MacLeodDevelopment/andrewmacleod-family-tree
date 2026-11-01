@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router'
 import { ApiError, useApi } from '../../shared/api/client.ts'
 import { profilesUrl, summaryDates } from '../profile/profile.ts'
 import type { Graph } from './graph.ts'
-import { cardHeight, cardWidth, hourglassLayout, type LineStyle, type TreeCard, type TreeLayout } from './hourglassLayout.ts'
+import { cardWidth, detailLineHeight, hourglassLayout, type LineStyle, type TreeCard, type TreeLayout } from './hourglassLayout.ts'
 
 /** SVG text doesn't wrap, so long names are cut to fit, with the whole name in a tooltip. */
 const maxNameLength = 22
@@ -102,8 +102,8 @@ function Card({ card }: { card: TreeCard }) {
   if (!person) {
     return (
       <g transform={`translate(${card.x} ${card.y})`}>
-        <rect width={cardWidth} height={cardHeight} rx="8" className="tree-card tree-card--unknown" />
-        <text x={cardWidth / 2} y={cardHeight / 2 + 5} textAnchor="middle" className="tree-card-dates">
+        <rect width={cardWidth} height={card.height} rx="8" className="tree-card tree-card--unknown" />
+        <text x={cardWidth / 2} y={card.height / 2 + 5} textAnchor="middle" className="tree-card-dates">
           Unknown
         </text>
       </g>
@@ -112,20 +112,21 @@ function Card({ card }: { card: TreeCard }) {
 
   const dates = summaryDates(person)
   const name = person.name.length > maxNameLength ? `${person.name.slice(0, maxNameLength - 1)}…` : person.name
-  const details = [person.isHalfSibling ? 'half' : null, dates].filter(Boolean).join(' · ')
   const label = [person.name, person.isHalfSibling ? 'half-sibling' : null, dates].filter(Boolean).join(', ')
 
   return (
     <Link to={`/tree/${person.id}`} aria-label={label} aria-current={card.isFocus ? 'true' : undefined}>
       <g transform={`translate(${card.x} ${card.y})`}>
         <title>{person.name}</title>
-        <rect width={cardWidth} height={cardHeight} rx="8" className={card.isFocus ? 'tree-card tree-card--focus' : 'tree-card'} />
+        <rect width={cardWidth} height={card.height} rx="8" className={card.isFocus ? 'tree-card tree-card--focus' : 'tree-card'} />
         <text x="10" y="24" className="tree-card-name">
           {name}
         </text>
-        <text x="10" y="44" className="tree-card-dates">
-          {details}
-        </text>
+        {card.details.map((line, index) => (
+          <text key={index} x="10" y={44 + index * detailLineHeight} className="tree-card-dates">
+            {line}
+          </text>
+        ))}
       </g>
     </Link>
   )
