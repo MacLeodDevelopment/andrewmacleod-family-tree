@@ -369,7 +369,7 @@ Everyone with a family role, not only admins, can search and read profiles: `/se
 
 ### The tree view
 
-`/tree/:id` draws the family around someone, as an hourglass: them in the middle, ancestors above, descendants below, partners side by side. Choosing anyone moves the tree to them. It opens from **See in the tree** on a profile.
+`/tree/:id` draws the family around someone, as an hourglass: them in the middle, ancestors above, descendants below, partners side by side. Choosing anyone moves the tree to them. It opens from **See in the tree** on a profile or an admin's person page, and from **My tree** in the header once an account is linked to a person.
 
 - **The layout and the drawing are separate.** [`hourglassLayout.ts`](web/src/features/tree/hourglassLayout.ts) is a plain function from a graph to positions, and knows nothing of React. So it's tested on its own, with rules rather than pixels: ancestors are above, cards never overlap, partners stand together. [`TreePage.tsx`](web/src/features/tree/TreePage.tsx) just draws what it's given.
 - **How it lays people out.** Generations come from walking outwards from the focus person. Partners form groups that stay together, with someone remarried between their partners. Then each group is moved towards the people it's joined to, a few times over, and pushed apart where needed. Lines may cross in a complicated family, but cards don't overlap. Someone reached by two routes, such as cousins who marry, sits on the first row found.
@@ -409,7 +409,7 @@ Why this isn't in an Application project yet: the design planned one for the pri
 
 **Someone from long ago with no dates** stays hidden until you record that they died. A death with a blank date is enough.
 
-**Seeing your own record.** A family member opens their profile and clicks **This is me**. That only sends a request: it reveals nothing until an admin approves it under People → Linked accounts. Once approved, they see their own details in full, including their own marriages, and a "My page" link appears in the header. They still can't see anyone else's details, including their partner's dates. An admin can remove a link at any time, and that takes the access away at once.
+**Seeing your own record.** A family member opens their profile and clicks **This is me**. That only sends a request: it reveals nothing until an admin approves it under People → Linked accounts. Once approved, they see their own details in full, including their own marriages, and "My page" and "My tree" links appear in the header. They still can't see anyone else's details, including their partner's dates. An admin can remove a link at any time, and that takes the access away at once.
 
 - **Why it's a request, not an email address an admin types in.** The link is to the account's object ID (`oid`), which never changes and isn't reused. Email addresses and `preferred_username` can change, and Microsoft advises against using them to decide access. Nobody knows an `oid` by heart, so the account supplies it by asking.
 - **Check who's asking before approving.** Anyone in the family can click **This is me** on anyone's page, so the name and account on a request are only a claim. Approving wrongly shows that person's dates to someone else.
