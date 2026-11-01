@@ -17,6 +17,7 @@ function PersonDetails({ person }: { person: Person }) {
       <p className="form-buttons">
         <Link to="/people">Back to people</Link>
         <Link to={`/family/${person.id}`}>See profile</Link>
+        <Link to={`/tree/${person.id}`}>See in the tree</Link>
       </p>
       <div className="page-heading">
         <h1>{fullName(person)}</h1>

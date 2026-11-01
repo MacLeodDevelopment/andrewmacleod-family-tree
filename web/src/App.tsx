@@ -35,6 +35,7 @@ function SiteNav() {
       </Link>
       {me.data && me.data.roles.length > 0 && <Link to="/search">Search</Link>}
       {link.data?.isApproved && <Link to={`/family/${link.data.personId}`}>My page</Link>}
+      {link.data?.isApproved && <Link to={`/tree/${link.data.personId}`}>My tree</Link>}
       {me.data?.roles.includes(adminRole) && <Link to="/people">People</Link>}
     </nav>
   )

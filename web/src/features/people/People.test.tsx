@@ -247,6 +247,15 @@ describe('Adding a person', () => {
 })
 
 describe("A person's page", () => {
+  it('links to them in the tree', async () => {
+    signedInWithRoles('Family.Admin')
+    personIs(morag)
+
+    renderApp(signedIn, '/people/morag-id')
+
+    expect(await screen.findByRole('link', { name: 'See in the tree' })).toHaveAttribute('href', '/tree/morag-id')
+  })
+
   it('shows their life events', async () => {
     signedInWithRoles('Family.Admin')
     personIs(morag)

@@ -191,6 +191,7 @@ describe('Saying which person you are', () => {
 
     await screen.findByText('Waiting for an admin to confirm this is you.')
     expect(screen.queryByRole('link', { name: 'My page' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'My tree' })).not.toBeInTheDocument()
   })
 
   it('confirms it on their own page, and links to it from the header', async () => {
@@ -199,6 +200,7 @@ describe('Saying which person you are', () => {
 
     expect(await screen.findByText('This is you.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'My page' })).toHaveAttribute('href', '/family/morag')
+    expect(screen.getByRole('link', { name: 'My tree' })).toHaveAttribute('href', '/tree/morag')
   })
 
   it("doesn't offer it on other people's pages once linked", async () => {
