@@ -391,6 +391,12 @@ describe('A profile', () => {
     expect(screen.getByRole('link', { name: 'Anna MacLeod' })).toBeInTheDocument()
   })
 
+  it('links to the tree', async () => {
+    await openProfile()
+
+    expect(screen.getByRole('link', { name: 'See in the tree' })).toHaveAttribute('href', '/tree/morag')
+  })
+
   it('offers viewers no way to edit', async () => {
     await openProfile('Family.Viewer')
 

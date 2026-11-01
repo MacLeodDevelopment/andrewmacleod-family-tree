@@ -350,7 +350,7 @@ Everyone with a family role, not only admins, can search and read profiles: `/se
 
 ### The tree around someone
 
-`GET /api/v1/people/{id}/graph?up=3&down=2` returns the part of the tree around a person, for family members. `up` and `down` count generations and are kept between 0 and 6. No screen uses it yet: it's what the tree view will draw.
+`GET /api/v1/people/{id}/graph?up=3&down=2` returns the part of the tree around a person, for family members. `up` and `down` count generations and are kept between 0 and 6. It's what [the tree view](#the-tree-view) draws.
 
 ```json
 {
@@ -366,6 +366,18 @@ Everyone with a family role, not only admins, can search and read profiles: `/se
 - **Unknown parents stay visible:** a family with a null partner means "unknown", and the view can draw a card for it.
 - **What's included:** each ancestor's and descendant's whole family, so aunts, uncles and their brothers and sisters appear, but not their partners or children. With at least one generation up, it also includes the parents' other families, and those children are flagged `isHalfSibling`.
 - **Privacy applies as usual.** `born` and `died` go through the same check as profiles. Families have no events here, so marriage dates can't leak.
+
+### The tree view
+
+`/tree/:id` draws the family around someone, as an hourglass: them in the middle, ancestors above, descendants below, partners side by side. Choosing anyone moves the tree to them. It opens from **See in the tree** on a profile.
+
+- **The layout and the drawing are separate.** [`hourglassLayout.ts`](web/src/features/tree/hourglassLayout.ts) is a plain function from a graph to positions, and knows nothing of React. So it's tested on its own, with rules rather than pixels: ancestors are above, cards never overlap, partners stand together. [`TreePage.tsx`](web/src/features/tree/TreePage.tsx) just draws what it's given.
+- **How it lays people out.** Generations come from walking outwards from the focus person. Partners form groups that stay together, with someone remarried between their partners. Then each group is moved towards the people it's joined to, a few times over, and pushed apart where needed. Lines may cross in a complicated family, but cards don't overlap. Someone reached by two routes, such as cousins who marry, sits on the first row found.
+- **Why not React Flow, as first planned.** It's built for large canvases with panning and zooming, and we only ever show a neighbourhood. Plain SVG needs no new dependency or bundle size, has nothing that could trip the Content Security Policy, and each card is a real link that works with the keyboard and screen readers. If the view outgrows this, the layout function can feed another renderer.
+- **Line styles:** solid for a birth parent, dashed for adopted, step or foster, dotted for presumed or unknown. A child's line shows the least certain link to their known parents. A thicker line joins partners, dotted if the other partner is unknown, and no line joins parents recorded as not a couple. A legend sits underneath.
+- **Unknown parents** get a dashed "Unknown" card, not a gap, but only if there are children to show it for.
+
+Not yet: moving the tree with an animation, collapsing branches, and marking aunts and uncles apart from parents.
 
 ### Privacy of living people
 
@@ -666,7 +678,7 @@ az containerapp show -g rg-familytree -n familytree-api --query "properties.temp
 
 The app is being built in small iterations, one pull request each, so the PR history is the record of what changed and why. Coming next, roughly in order:
 
-- Tree views.
+- A plain outline of the tree, for phones and screen readers.
 - Maps.
 
 Relatives should not be invited until the privacy rule is deployed.
