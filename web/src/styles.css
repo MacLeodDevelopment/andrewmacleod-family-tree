@@ -485,6 +485,89 @@ h3 {
   width: 100%;
 }
 
+/* --------- TREE --------- */
+/* Wider than the text column when there's room, so a big tree needs less scrolling. */
+.tree-scroller {
+  overflow-x: auto;
+  margin: 1rem calc(50% - min(48vw, 700px));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.tree-scroller svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.tree-line {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.5;
+}
+
+.tree-line--partner {
+  stroke-width: 2.5;
+}
+
+.tree-line--social {
+  stroke-dasharray: 8 5;
+}
+
+.tree-line--uncertain {
+  stroke-dasharray: 2 4;
+}
+
+.tree-card {
+  fill: var(--card-bg);
+  stroke: var(--border);
+  stroke-width: 2;
+}
+
+.tree-card--focus {
+  stroke: var(--link);
+  stroke-width: 3;
+}
+
+.tree-card--unknown {
+  stroke-dasharray: 6 4;
+  stroke: var(--muted);
+}
+
+a:hover .tree-card {
+  stroke: var(--link);
+}
+
+a:focus-visible .tree-card {
+  stroke: var(--focus);
+  stroke-width: 4;
+}
+
+.tree-card-name {
+  fill: var(--text);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.tree-card-dates {
+  fill: var(--muted);
+  font-size: 0.75rem;
+}
+
+.tree-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.tree-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 /* --------- FORMS --------- */
 .form {
   display: grid;

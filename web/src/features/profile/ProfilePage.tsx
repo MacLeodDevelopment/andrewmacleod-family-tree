@@ -40,8 +40,9 @@ function ProfileDetails({ profile }: { profile: Profile }) {
 
   return (
     <>
-      <p>
+      <p className="form-buttons">
         <Link to="/search">Back to search</Link>
+        <Link to={`/tree/${profile.id}`}>See in the tree</Link>
       </p>
       <div className="page-heading">
         <h1>{nameText(main)}</h1>

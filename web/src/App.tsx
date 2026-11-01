@@ -8,6 +8,7 @@ import { PersonPage } from './features/people/PersonPage.tsx'
 import { RequireAdmin, RequireMember } from './features/people/RequireAdmin.tsx'
 import { ProfilePage } from './features/profile/ProfilePage.tsx'
 import { SearchPage } from './features/profile/SearchPage.tsx'
+import { TreePage } from './features/tree/TreePage.tsx'
 import { ApiStatus } from './features/status/ApiStatus.tsx'
 import { adminRole, useMe } from './shared/api/me.ts'
 import { useMyLink } from './shared/api/myLink.ts'
@@ -51,6 +52,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/search" element={<RequireMember><SearchPage /></RequireMember>} />
           <Route path="/family/:id" element={<RequireMember><ProfilePage /></RequireMember>} />
+          <Route path="/tree/:id" element={<RequireMember><TreePage /></RequireMember>} />
           <Route path="/people" element={<RequireAdmin><PeopleListPage /></RequireAdmin>} />
           <Route path="/people/accounts" element={<RequireAdmin><AccountLinksPage /></RequireAdmin>} />
           <Route path="/people/new" element={<RequireAdmin><AddPersonPage /></RequireAdmin>} />
