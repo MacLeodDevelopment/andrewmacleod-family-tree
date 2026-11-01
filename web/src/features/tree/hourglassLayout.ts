@@ -1,7 +1,12 @@
+import { lifeDates } from '../profile/profile.ts'
 import type { Graph, GraphChild, GraphFamily, GraphPerson } from './graph.ts'
 
 export const cardWidth = 170
+/** The shortest a card can be: a name and one line of details. */
 export const cardHeight = 58
+export const detailLineHeight = 16
+/** As many characters as always fit across a card. It's a limit, as SVG text can't wrap itself. */
+const maxDetailLength = 24
 const cardGap = 20
 const groupGap = 44
 const rowGap = 76
@@ -16,9 +21,12 @@ export interface TreeCard {
   key: string
   /** Null for a parent nobody knows. */
   person: GraphPerson | null
+  /** The lines under the name, already wrapped to fit. */
+  details: string[]
   isFocus: boolean
   x: number
   y: number
+  height: number
 }
 
 export interface TreeLine {
@@ -51,7 +59,8 @@ const unknownKey = (family: GraphFamily) => `unknown:${family.id}`
 /**
  * Lays a graph out as an hourglass: the focus person's row in the middle, ancestors above,
  * descendants below, and partners side by side. It only places things: it knows nothing
- * of how they're drawn, so a different renderer could use it.
+ * of how they're drawn, so a different renderer could use it. Each row is as tall as its
+ * tallest card, so the cards in a row stay level.
  */
 export function hourglassLayout(graph: Graph): TreeLayout {
   const units = graph.families.map(toUnit)
@@ -59,26 +68,66 @@ export function hourglassLayout(graph: Graph): TreeLayout {
   const rows = buildRows(generations, units)
   const positions = placeCards(rows, units)
 
-  const firstGeneration = Math.min(...generations.values())
+  const people = new Map(graph.people.map((person) => [person.id, person]))
+  const details = (key: string) => {
+    const person = people.get(key)
+    return person ? cardDetails(person) : []
+  }
+
+  const rowHeights = new Map<number, number>()
+  for (const [key, generation] of generations) {
+    const extraLines = Math.max(details(key).length - 1, 0)
+    rowHeights.set(generation, Math.max(rowHeights.get(generation) ?? 0, cardHeight + extraLines * detailLineHeight))
+  }
+
+  const rowTops = new Map<number, number>()
+  let nextTop = margin
+  for (const [generation, rowHeight] of [...rowHeights].sort(([a], [b]) => a - b)) {
+    rowTops.set(generation, nextTop)
+    nextTop += rowHeight + rowGap
+  }
+
   const lowest = Math.min(...positions.values())
   const x = (key: string) => positions.get(key)! - lowest + margin
-  const y = (key: string) => (generations.get(key)! - firstGeneration) * (cardHeight + rowGap) + margin
+  const y = (key: string) => rowTops.get(generations.get(key)!)!
+  const height = (key: string) => rowHeights.get(generations.get(key)!)!
 
-  const people = new Map(graph.people.map((person) => [person.id, person]))
   const cards = [...generations.keys()].map((key) => ({
     key,
     person: people.get(key) ?? null,
+    details: details(key),
     isFocus: key === graph.focusId,
     x: x(key),
     y: y(key),
+    height: height(key),
   }))
 
   return {
     cards,
-    lines: buildLines(units, x, y),
+    lines: buildLines(units, x, y, height),
     width: Math.max(...cards.map((card) => card.x)) + cardWidth + margin,
-    height: Math.max(...cards.map((card) => card.y)) + cardHeight + margin,
+    height: nextTop - rowGap + margin,
   }
+}
+
+function cardDetails(person: GraphPerson): string[] {
+  return [...(person.isHalfSibling ? ['half'] : []), ...lifeDates(person)].flatMap(wrap)
+}
+
+/** Breaks text between words, so that each line fits across a card. */
+function wrap(text: string): string[] {
+  const lines: string[] = []
+
+  for (const word of text.split(' ')) {
+    const longer = `${lines.at(-1)} ${word}`
+    if (lines.length > 0 && longer.length <= maxDetailLength) {
+      lines[lines.length - 1] = longer
+    } else {
+      lines.push(word)
+    }
+  }
+
+  return lines
 }
 
 function toUnit(family: GraphFamily): Unit {
@@ -234,7 +283,12 @@ function lineStyle(family: GraphFamily, child: GraphChild): LineStyle {
   return relationships.every((relationship) => relationship === 'Biological') ? 'biological' : 'social'
 }
 
-function buildLines(units: Unit[], x: (key: string) => number, y: (key: string) => number): TreeLine[] {
+function buildLines(
+  units: Unit[],
+  x: (key: string) => number,
+  y: (key: string) => number,
+  height: (key: string) => number,
+): TreeLine[] {
   const lines: TreeLine[] = []
   const busesInRow = new Map<number, number>()
 
@@ -245,7 +299,7 @@ function buildLines(units: Unit[], x: (key: string) => number, y: (key: string) 
 
     const centres = partners.map((partner) => x(partner) + cardWidth / 2)
     const junction = centres.reduce((sum, centre) => sum + centre, 0) / centres.length
-    const middleY = y(partners[0]) + cardHeight / 2
+    const middleY = y(partners[0]) + height(partners[0]) / 2
 
     if (partners.length === 2 && family.type !== 'None') {
       lines.push({
@@ -255,7 +309,7 @@ function buildLines(units: Unit[], x: (key: string) => number, y: (key: string) 
       })
     }
 
-    const bottom = y(partners[0]) + cardHeight
+    const bottom = y(partners[0]) + height(partners[0])
     const bus = busesInRow.get(bottom) ?? 0
     busesInRow.set(bottom, bus + 1)
     const busY = bottom + rowGap / 2 - busSpacing * (bus % 4)

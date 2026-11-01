@@ -70,6 +70,14 @@ describe('The family tree', () => {
     expect(screen.getByRole('link', { name: 'Anna MacLeod' })).not.toHaveAttribute('aria-current')
   })
 
+  it('puts each event on a line of its own', async () => {
+    await openTree()
+
+    const focus = within(screen.getByRole('link', { name: 'Morag MacLeod, b. c. 1870, d. 1901' }))
+    expect(focus.getByText('b. c. 1870')).toBeInTheDocument()
+    expect(focus.getByText('d. 1901')).toBeInTheDocument()
+  })
+
   it('moves to whoever is chosen', async () => {
     await openTree()
     graphIs({ ...graph, focusId: 'anna' })
@@ -88,7 +96,8 @@ describe('The family tree', () => {
   it('marks half-siblings', async () => {
     await openTree()
 
-    expect(screen.getByRole('link', { name: 'Rory MacLeod, half-sibling' })).toBeInTheDocument()
+    const rory = screen.getByRole('link', { name: 'Rory MacLeod, half-sibling' })
+    expect(within(rory).getByText('half')).toBeInTheDocument()
   })
 
   it('shortens a very long name but keeps it whole for tooltips and screen readers', async () => {

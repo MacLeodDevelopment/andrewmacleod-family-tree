@@ -42,7 +42,12 @@ export interface Profile {
 
 export const profilesUrl = '/api/v1/people'
 
+/** Each of their dates on its own, such as "b. c. 1870" and "d. 1901". */
+export function lifeDates(person: PersonSummary): string[] {
+  return [person.born && `b. ${person.born}`, person.died && `d. ${person.died}`].filter((date) => date !== null)
+}
+
 /** Their dates in a line, such as "b. c. 1870, d. 1901". */
 export function summaryDates(person: PersonSummary): string {
-  return [person.born && `b. ${person.born}`, person.died && `d. ${person.died}`].filter(Boolean).join(', ')
+  return lifeDates(person).join(', ')
 }
