@@ -628,6 +628,17 @@ a:focus-visible .tree-card {
   padding: 0.35rem 0.6rem;
 }
 
+.form .form-checkbox {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.form .form-checkbox input {
+  width: auto;
+  flex: none;
+}
+
 .form input[aria-invalid='true'] {
   border-color: var(--danger);
 }

@@ -21,7 +21,10 @@ public static class ProfilesEndpoints
 
     public sealed record SearchResults(IReadOnlyList<PersonSummary> Items, int Total);
 
-    public sealed record ProfileName(string GivenName, string? Surname, NameType Type);
+    /// <param name="GivenName">Their given name.</param>
+    /// <param name="Surname">Their surname, if it's known.</param>
+    /// <param name="Type">The type of name. Null for an adopted name: the name is theirs, but the word isn't for viewers.</param>
+    public sealed record ProfileName(string GivenName, string? Surname, NameType? Type);
 
     public sealed record ProfileEvent(string Type, string? Date, string? Place);
 
@@ -95,6 +98,26 @@ public static class ProfilesEndpoints
         public bool Hides(Person person) =>
             !SeesEverything && person.Id != OwnPerson && person.MayBeLiving(CurrentYear);
 
+        /// <summary>
+        /// Someone adopted may not want the name they were born with known. While they may be
+        /// living, viewers aren't shown it and can't find them by it, unless an admin has said they can.
+        /// </summary>
+        public IReadOnlyList<PersonName> NamesOf(Person person)
+        {
+            var names = person.Names.OrderBy(name => name.Position).ToList();
+            var keepsBirthNamePrivate = Hides(person) && !person.ShowsBirthName && names.Exists(name => name.Type == NameType.Adopted);
+
+            return keepsBirthNamePrivate ? names.Where(name => name.Type != NameType.Birth).ToList() : names;
+        }
+
+        public bool FindsByName(Person person, string[] words)
+        {
+            var names = NamesOf(person);
+            return Array.TrueForAll(words, word => names.Any(name =>
+                name.GivenName.Contains(word, StringComparison.OrdinalIgnoreCase)
+                || (name.Surname?.Contains(word, StringComparison.OrdinalIgnoreCase) ?? false)));
+        }
+
         /// <summary>A marriage is private if either partner's details are, but it's the reader's own if they're one of them.</summary>
         public bool ShowsEventsOf(Family family, Dictionary<Guid, Person> relatives) =>
             family.Partners.Any(partner => partner == OwnPerson)
@@ -110,12 +133,13 @@ public static class ProfilesEndpoints
         }
 
         var privacy = await Privacy.ForAsync(user, authorization, database, cancellationToken);
-        var matching = database.People.AsNoTracking().WithNameContaining(q);
-        var people = await matching.OrderBy(person => person.Id).Take(MaxSearchResults).ToListAsync(cancellationToken);
+        var words = q.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var matching = await database.People.AsNoTracking().WithNameContaining(q).OrderBy(person => person.Id).ToListAsync(cancellationToken);
+        var found = matching.Where(person => privacy.FindsByName(person, words)).ToList();
 
         return new SearchResults(
-            people.Select(person => ToSummary(person, privacy)).OrderBy(person => person.Name, StringComparer.CurrentCultureIgnoreCase).ToList(),
-            await matching.CountAsync(cancellationToken));
+            found.Take(MaxSearchResults).Select(person => ToSummary(person, privacy)).OrderBy(person => person.Name, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            found.Count);
     }
 
     private static async Task<IResult> GetAsync(
@@ -158,7 +182,9 @@ public static class ProfilesEndpoints
         return Results.Ok(new Profile(
             person.Id,
             isPrivate,
-            person.Names.OrderBy(name => name.Position).Select(name => new ProfileName(name.GivenName, name.Surname, name.Type)).ToList(),
+            privacy.NamesOf(person)
+                .Select(name => new ProfileName(name.GivenName, name.Surname, name.Type == NameType.Adopted ? null : name.Type))
+                .ToList(),
             isPrivate ? [] : person.Timeline.Select(e => new ProfileEvent(e.Type.ToString(), e.Date?.Display, e.Place)).ToList(),
             asChild.SelectMany(f => ParentsIn(f, id, summaries)).ToList(),
             siblings.Select(sibling => new ProfileSibling(summaries[sibling], IsHalf: false))

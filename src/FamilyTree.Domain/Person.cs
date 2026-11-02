@@ -12,6 +12,7 @@ public enum NameType
 {
     Birth,
     Married,
+    Adopted,
     Alias,
     Nickname,
 }
@@ -113,6 +114,9 @@ public sealed class Person
 
     public IReadOnlyList<PersonName> Names => names;
 
+    /// <summary>Whether viewers may see an adopted person's birth name while they may be living.</summary>
+    public bool ShowsBirthName { get; private set; }
+
     public IReadOnlyList<LifeEvent> Events => events;
 
     /// <summary>The person's events in date order, with undated events last.</summary>
@@ -120,7 +124,7 @@ public sealed class Person
         .OrderBy(lifeEvent => lifeEvent.Date is null)
         .ThenBy(lifeEvent => lifeEvent.Date?.SortKey);
 
-    public static Result<Person> Create(Sex sex, IReadOnlyList<NameDetails> names)
+    public static Result<Person> Create(Sex sex, IReadOnlyList<NameDetails> names, bool showsBirthName = false)
     {
         var errors = Validate(names);
         if (errors.Count > 0)
@@ -130,14 +134,14 @@ public sealed class Person
 
         // Version 7 GUIDs start with the time, so new rows go at the end of the table's
         // index instead of scattering across it.
-        var person = new Person { Id = Guid.CreateVersion7(), Sex = sex };
-        person.SetNames(names);
+        var person = new Person { Id = Guid.CreateVersion7(), Sex = sex, ShowsBirthName = showsBirthName };
+        person.SetNames(WithMainNameFirst(names));
 
         return Result<Person>.Success(person);
     }
 
     /// <summary>Replaces the person's sex and names, by the same rules as <see cref="Create"/>.</summary>
-    public Result<Person> Update(Sex sex, IReadOnlyList<NameDetails> names)
+    public Result<Person> Update(Sex sex, IReadOnlyList<NameDetails> names, bool showsBirthName = false)
     {
         var errors = Validate(names);
         if (errors.Count > 0)
@@ -146,9 +150,23 @@ public sealed class Person
         }
 
         Sex = sex;
-        SetNames(names);
+        ShowsBirthName = showsBirthName;
+        SetNames(WithMainNameFirst(names));
 
         return Result<Person>.Success(this);
+    }
+
+    /// <summary>
+    /// Someone adopted is known by their adopted name, so it takes the place of their birth
+    /// name as their main name. A later main name, such as a married name, stays in front.
+    /// </summary>
+    private static IReadOnlyList<NameDetails> WithMainNameFirst(IReadOnlyList<NameDetails> details)
+    {
+        var adopted = details.FirstOrDefault(name => name.Type == NameType.Adopted);
+
+        return details[0].Type == NameType.Birth && adopted is not null
+            ? [adopted, .. details.Where(name => !ReferenceEquals(name, adopted))]
+            : details;
     }
 
     /// <summary>

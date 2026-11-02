@@ -32,7 +32,8 @@ export interface Profile {
   id: string
   /** Their details are hidden because they may be living. */
   isPrivate: boolean
-  names: { givenName: string; surname: string | null; type: NameType }[]
+  /** An adopted name has no type here: the word isn't shown to viewers. */
+  names: { givenName: string; surname: string | null; type: NameType | null }[]
   events: ProfileEvent[]
   /** One row for each place in a family, so a parent nobody knows has a null person. */
   parents: { person: PersonSummary | null; relationship: ParentRelationship }[]

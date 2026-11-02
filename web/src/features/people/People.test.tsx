@@ -13,6 +13,7 @@ const morag: Person = {
   id: 'morag-id',
   sex: 'Female',
   names: [{ givenName: 'Morag', surname: 'MacLeod', type: 'Birth' }],
+  showsBirthName: false,
   events: [{ id: 'e1', type: 'Birth', date: 'c. 1870', dateAsEntered: 'abt 1870', place: 'Innellan' }],
 }
 
@@ -158,7 +159,7 @@ describe('Adding a person', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Morag MacLeod' })).toBeInTheDocument()
     expect(sent).toEqual({
       token: `Bearer ${testAccessToken}`,
-      body: { sex: 'Female', names: [{ givenName: 'Morag', surname: 'MacLeod', type: 'Birth' }] },
+      body: { sex: 'Female', names: [{ givenName: 'Morag', surname: 'MacLeod', type: 'Birth' }], showsBirthName: false },
     })
   })
 
@@ -469,10 +470,75 @@ describe("A person's page", () => {
   })
 })
 
+describe('Sharing the birth name of someone adopted', () => {
+  const adopted: Person = {
+    ...morag,
+    names: [
+      { givenName: 'Morag', surname: 'MacLeod', type: 'Adopted' },
+      { givenName: 'Morag', surname: 'Stewart', type: 'Birth' },
+    ],
+  }
+  const choice = { name: 'Show their birth name to the family while they may be living' }
+
+  function savesPerson(onSave: (body: unknown) => void) {
+    server.use(
+      http.put('*/api/v1/admin/people/morag-id', async ({ request }) => {
+        onSave(await request.json())
+        return HttpResponse.json(adopted)
+      }),
+    )
+  }
+
+  it('is off until an admin chooses it', async () => {
+    signedInWithRoles('Family.Admin')
+    personIs(adopted)
+    renderApp(signedIn, '/people/morag-id/edit')
+
+    expect(await screen.findByRole('checkbox', choice)).not.toBeChecked()
+  })
+
+  it('saves the choice', async () => {
+    signedInWithRoles('Family.Admin')
+    personIs(adopted)
+    let sent: { showsBirthName?: boolean } | undefined
+    savesPerson((body) => (sent = body as typeof sent))
+    renderApp(signedIn, '/people/morag-id/edit')
+
+    fireEvent.click(await screen.findByRole('checkbox', choice))
+    click('Save')
+
+    await waitFor(() => expect(sent?.showsBirthName).toBe(true))
+  })
+
+  it('is only offered for someone with both an adopted and a birth name', async () => {
+    signedInWithRoles('Family.Admin')
+    personIs(morag)
+    renderApp(signedIn, '/people/morag-id/edit')
+
+    await screen.findByRole('heading', { name: 'Edit Morag MacLeod' })
+    expect(screen.queryByRole('checkbox', choice)).not.toBeInTheDocument()
+  })
+
+  it('is dropped if they no longer have both names', async () => {
+    signedInWithRoles('Family.Admin')
+    personIs({ ...adopted, showsBirthName: true })
+    let sent: { showsBirthName?: boolean } | undefined
+    savesPerson((body) => (sent = body as typeof sent))
+    renderApp(signedIn, '/people/morag-id/edit')
+
+    await screen.findByRole('checkbox', choice)
+    click('Remove this name')
+    click('Save')
+
+    await waitFor(() => expect(sent?.showsBirthName).toBe(false))
+  })
+})
+
 describe('Editing a person', () => {
   const isla: Person = {
     id: 'isla-id',
     sex: 'Unknown',
+    showsBirthName: false,
     names: [
       { givenName: 'Isla', surname: 'Campbell', type: 'Birth' },
       { givenName: 'Isla', surname: null, type: 'Nickname' },
@@ -509,7 +575,7 @@ describe('Editing a person', () => {
     click('Save')
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Isla MacLeod' })).toBeInTheDocument()
-    expect(sent).toEqual({ sex: 'Female', names: [{ givenName: 'Isla', surname: 'MacLeod', type: 'Birth' }] })
+    expect(sent).toEqual({ sex: 'Female', names: [{ givenName: 'Isla', surname: 'MacLeod', type: 'Birth' }], showsBirthName: false })
   })
 
   it('updates the list too', async () => {
@@ -577,6 +643,7 @@ describe("A person's family", () => {
   const person = (id: string, givenName: string, surname = 'MacLeod'): Person => ({
     id,
     sex: 'Unknown',
+    showsBirthName: false,
     names: [{ givenName, surname, type: 'Birth' }],
     events: [],
   })

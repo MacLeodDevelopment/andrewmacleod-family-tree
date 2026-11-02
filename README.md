@@ -187,7 +187,7 @@ The API has no permission to change the schema, so a migration can only ever rea
 
 ### People
 
-A **person** ([`Person.cs`](src/FamilyTree.Domain/Person.cs)) has a recorded **sex** (`Female`, `Male` or `Unknown`, as written in the records, which are often incomplete) and one or more **names**. Each name has a given name, an optional surname and a type (`Birth`, `Married`, `Alias` or `Nickname`). The first name in the list is the person's main name. In the database that's a `People` table and a `PersonNames` table.
+A **person** ([`Person.cs`](src/FamilyTree.Domain/Person.cs)) has a recorded **sex** (`Female`, `Male` or `Unknown`, as written in the records, which are often incomplete) and one or more **names**. Each name has a given name, an optional surname and a type (`Birth`, `Married`, `Adopted`, `Alias` or `Nickname`). The first name in the list is the person's main name. In the database that's a `People` table and a `PersonNames` table.
 
 **The rules live in the domain.** `Person.Create` is the only way to make a person, and it enforces that they have at least one name, that every name has a given name, and that names fit in their columns. It returns a `Result` rather than throwing, because bad input is an expected outcome, not an exception. Errors are keyed by field (`names[0].givenName`), and the API returns them as a 400 *validation problem*: the same problem-details shape as other errors, plus an `errors` object the edit screens can show next to each field.
 
@@ -406,6 +406,15 @@ Names and relationships stay visible, including the type of a partnership and wh
 The redaction happens in one place, in the viewer endpoints. The `/admin` endpoints return everything and are admin-only. **Anything new that a viewer can read must go through the same check.**
 
 Why this isn't in an Application project yet: the design planned one for the privacy rules, but the rule is a small function in the domain and it's used by one file. Add a project when a second consumer needs it.
+
+**Adopted names.** Being adopted is someone's own story to tell, so if a person has an `Adopted` name:
+
+- It's their main name, because it's the name they're known by. `Person` moves it in front of a birth name when they're saved, whatever order the names were typed in, so everything that reads the first name gets it right. A later main name, such as a married name, stays in front.
+- While they may be living, their birth name isn't sent to viewers and searching for it doesn't find them. An admin can change that for one person with the **Show their birth name to the family** tick-box on the edit page. Once they've died, it's shown like any other name.
+- A birth name appears as "Born Morag Stewart", and the word "adopted" is never sent to viewers: the API gives an adopted name no type. It appears only on the admin pages.
+- Admins, and the person themselves once linked, see all their names.
+
+This covers names only. A child's link to their parents still says `Adopted` on the profile, and shows as a dashed line in the tree.
 
 **Someone from long ago with no dates** stays hidden until you record that they died. A death with a blank date is enough.
 
