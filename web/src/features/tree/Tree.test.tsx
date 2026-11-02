@@ -47,6 +47,58 @@ async function openTree() {
   await screen.findByRole('heading', { level: 1, name: 'Morag MacLeod' })
 }
 
+describe('Opening the tree from the menu', () => {
+  function linkIs(link: { personId: string; isApproved: boolean } | null) {
+    server.use(http.get('*/api/v1/me/link', () => (link ? HttpResponse.json(link) : new HttpResponse(null, { status: 204 }))))
+  }
+
+  it('is offered to every member, linked or not', async () => {
+    signedInWithRoles('Family.Admin')
+    linkIs(null)
+    renderApp(signedIn)
+
+    expect(await screen.findByRole('link', { name: 'Tree' })).toHaveAttribute('href', '/tree')
+  })
+
+  it('is not offered to people without a family role', async () => {
+    server.use(http.get('*/api/v1/me', () => new HttpResponse(null, { status: 403 })))
+    renderApp(signedIn)
+
+    await screen.findByText('No access')
+    expect(screen.queryByRole('link', { name: 'Tree' })).not.toBeInTheDocument()
+  })
+
+  it('asks visitors to sign in', () => {
+    renderApp(fakeAuth(), '/tree')
+
+    expect(screen.getByText('Please sign in to see this page.')).toBeInTheDocument()
+  })
+
+  it('opens on you once your account is linked', async () => {
+    signedInWithRoles('Family.Viewer')
+    linkIs({ personId: 'morag', isApproved: true })
+    graphIs(graph)
+    renderApp(signedIn, '/tree')
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Morag MacLeod' })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['not linked', null],
+    ['still waiting for approval', { personId: 'morag', isApproved: false }],
+  ])('asks who to start from when you are %s', async (_, link) => {
+    signedInWithRoles('Family.Viewer')
+    linkIs(link)
+    server.use(http.get('*/api/v1/people/search', () => HttpResponse.json({ items: [morag], total: 1 })))
+    renderApp(signedIn, '/tree')
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Who should the tree start from?' })).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Name' }), { target: { value: 'Morag' } })
+
+    expect(await screen.findByRole('link', { name: 'Morag MacLeod' })).toHaveAttribute('href', '/tree/morag')
+  })
+})
+
 describe('The family tree', () => {
   it('asks visitors to sign in', () => {
     renderApp(fakeAuth(), '/tree/morag')
