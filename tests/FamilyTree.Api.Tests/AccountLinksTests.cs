@@ -57,6 +57,10 @@ public class AccountLinksTests(ApiFactory factory, SqlServerContainer sqlServer)
     private static Task<HttpResponseMessage> ApproveAsync(HttpClient admin, TestUser user) =>
         admin.PostAsync($"{Links}/{AccountOf(user)}/approve", null, Cancellation);
 
+    private sealed record Name(string GivenName);
+
+    private sealed record NamedProfile(Name[] Names);
+
     private static Task<Profile?> ProfileAsync(HttpClient client, Guid id) =>
         client.GetFromJsonAsync<Profile>($"{People}/{id}", Cancellation);
 
@@ -118,6 +122,27 @@ public class AccountLinksTests(ApiFactory factory, SqlServerContainer sqlServer)
         var profile = await ProfileAsync(viewer, person);
         Assert.False(profile!.IsPrivate);
         Assert.Equal(new Event("Birth", "1985", "Dunoon"), Assert.Single(profile.Events));
+    }
+
+    [Fact]
+    public async Task Someone_adopted_sees_all_their_own_names_once_approved()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var user = NewViewer();
+        var (adoptedName, birthName) = ($"Adopted{Guid.NewGuid():N}", $"Born{Guid.NewGuid():N}");
+        var created = await admin.PostAsJsonAsync(
+            AdminPeople,
+            new { names = new[] { new { givenName = adoptedName, type = "Adopted" }, new { givenName = birthName, type = "Birth" } } },
+            Cancellation);
+        var person = (await created.Content.ReadFromJsonAsync<Created>(Cancellation))!.Id;
+        var client = api.CreateClientFor(user);
+        await ClaimAsync(client, person);
+        await ApproveAsync(admin, user);
+
+        var found = await client.GetFromJsonAsync<NamedProfile>($"{People}/{person}", Cancellation);
+
+        Assert.Equal([adoptedName, birthName], found!.Names.Select(name => name.GivenName));
     }
 
     [Fact]

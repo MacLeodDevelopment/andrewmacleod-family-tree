@@ -83,6 +83,9 @@ namespace FamilyTree.Infrastructure.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<bool>("ShowsBirthName")
+                        .HasColumnType("bit");
+
                     b.HasKey("Id");
 
                     b.ToTable("People", (string)null);

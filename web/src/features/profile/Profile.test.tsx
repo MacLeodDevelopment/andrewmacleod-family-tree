@@ -340,6 +340,36 @@ describe('A profile', () => {
     expect(screen.getByText(/c\. 1870 · Innellan/)).toBeInTheDocument()
   })
 
+  it('gives a birth name in plain words, with no mention of adoption', async () => {
+    signedInWithRoles('Family.Viewer')
+    profileIs({
+      ...profile,
+      names: [
+        { givenName: 'Morag', surname: 'MacLeod', type: null },
+        { givenName: 'Morag', surname: 'Stewart', type: 'Birth' },
+        { givenName: 'Morag', surname: 'Campbell', type: 'Married' },
+      ],
+    })
+    renderApp(signedIn, '/family/morag')
+
+    expect(await screen.findByText('Born Morag Stewart')).toBeInTheDocument()
+    expect(screen.getByText('Also known as Morag Campbell (married)')).toBeInTheDocument()
+  })
+
+  it("leaves an adopted name that isn't their main name unlabelled", async () => {
+    signedInWithRoles('Family.Viewer')
+    profileIs({
+      ...profile,
+      names: [
+        { givenName: 'Morag', surname: 'Campbell', type: 'Married' },
+        { givenName: 'Morag', surname: 'MacLeod', type: null },
+      ],
+    })
+    renderApp(signedIn, '/family/morag')
+
+    expect(await screen.findByText('Also known as Morag MacLeod')).toBeInTheDocument()
+  })
+
   it('shows parents, including an unknown one, and how they are related', async () => {
     await openProfile()
 

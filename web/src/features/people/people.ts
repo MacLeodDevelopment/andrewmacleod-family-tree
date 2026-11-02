@@ -1,7 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import type { Problem } from '../../shared/api/client.ts'
 
-export const nameTypes = ['Birth', 'Married', 'Alias', 'Nickname'] as const
+export const nameTypes = ['Birth', 'Married', 'Adopted', 'Alias', 'Nickname'] as const
 export const sexes = ['Unknown', 'Female', 'Male'] as const
 export const eventTypes = ['Birth', 'Death'] as const
 
@@ -29,11 +29,13 @@ export interface Person {
   id: string
   sex: Sex
   names: PersonName[]
+  /** Whether viewers may see an adopted person's birth name while they may be living. */
+  showsBirthName: boolean
   events: LifeEvent[]
 }
 
 /** What can be changed about a person directly: everything except their events. */
-export type PersonDetails = Pick<Person, 'sex' | 'names'>
+export type PersonDetails = Pick<Person, 'sex' | 'names' | 'showsBirthName'>
 
 export interface PeoplePage {
   items: Person[]

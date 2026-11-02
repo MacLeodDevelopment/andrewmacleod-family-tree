@@ -29,8 +29,14 @@ export function PersonForm({ person, problem, saving, cancelTo, onSave, renderNo
     person?.names.map((name) => ({ ...name, surname: name.surname ?? '' })) ?? [emptyName],
   )
   const [sex, setSex] = useState<Sex>(person?.sex ?? 'Unknown')
+  const [showsBirthName, setShowsBirthName] = useState(person?.showsBirthName ?? false)
 
-  const details: PersonDetails = { sex, names: names.map((name) => ({ ...name, surname: name.surname || null })) }
+  const adoptedWithBirthName = ['Adopted', 'Birth'].every((type) => names.some((name) => name.type === type))
+  const details: PersonDetails = {
+    sex,
+    names: names.map((name) => ({ ...name, surname: name.surname || null })),
+    showsBirthName: adoptedWithBirthName && showsBirthName,
+  }
   const updateName = (index: number, change: Partial<NameRow>) =>
     setNames(names.map((name, i) => (i === index ? { ...name, ...change } : name)))
 
@@ -82,6 +88,13 @@ export function PersonForm({ person, problem, saving, cancelTo, onSave, renderNo
         Add another name
       </button>
       <FieldError messages={problem?.errors?.names} />
+
+      {adoptedWithBirthName && (
+        <label className="form-checkbox">
+          <input type="checkbox" checked={showsBirthName} onChange={(event) => setShowsBirthName(event.target.checked)} />
+          Show their birth name to the family while they may be living
+        </label>
+      )}
 
       <label>
         Sex

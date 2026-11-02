@@ -30,6 +30,12 @@ public class ProfilesTests(ApiFactory factory, SqlServerContainer sqlServer) : I
 
     private sealed record Partnership(Summary? Partner, string Type, Event[] Events, Child[] Children);
 
+    private sealed record Name(string GivenName);
+
+    private sealed record NamedProfile(Name[] Names);
+
+    private sealed record AdminPerson(bool ShowsBirthName);
+
     private sealed record Profile(Guid Id, bool IsPrivate, Event[] Events, Parent[] Parents, Sibling[] Siblings, Partnership[] Partnerships);
 
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
@@ -286,6 +292,188 @@ public class ProfilesTests(ApiFactory factory, SqlServerContainer sqlServer) : I
 
         Assert.False(profile!.IsPrivate);
         Assert.Equal("Secretplace", Assert.Single(profile.Events).Place);
+    }
+
+    /// <summary>Someone adopted, entered birth name first, with names unique to this test.</summary>
+    private static async Task<(Guid Id, string AdoptedName, string BirthName)> AdoptedPersonAsync(HttpClient admin, bool showsBirthName = false)
+    {
+        var (adoptedName, birthName) = ($"Adopted{Guid.NewGuid():N}", $"Born{Guid.NewGuid():N}");
+        var response = await admin.PostAsJsonAsync(
+            AdminPeople,
+            new { names = new[] { new { givenName = birthName, type = "Birth" }, new { givenName = adoptedName, type = "Adopted" } }, showsBirthName },
+            Cancellation);
+        return ((await response.Content.ReadFromJsonAsync<Created>(Cancellation))!.Id, adoptedName, birthName);
+    }
+
+    private static async Task<string[]> NamesAsync(HttpClient client, Guid id) =>
+        (await client.GetFromJsonAsync<NamedProfile>($"{People}/{id}", Cancellation))!.Names.Select(name => name.GivenName).ToArray();
+
+    private static Task<Results?> SearchAsync(HttpClient client, string text) =>
+        client.GetFromJsonAsync<Results>($"{People}/search?q={text}", Cancellation);
+
+    [Fact]
+    public async Task Searching_ignores_capitals()
+    {
+        var api = Api();
+        var name = $"Capitals{Guid.NewGuid():N}";
+        var person = await PersonAsync(api.CreateClientFor(Admin), name, "MacLeod");
+
+        var found = await SearchAsync(api.CreateClientFor(Viewer), $"{name.ToUpperInvariant()}%20macleod");
+
+        Assert.Equal(person, Assert.Single(found!.Items).Id);
+    }
+
+    [Fact]
+    public async Task An_adopted_name_is_the_main_name_whatever_order_it_was_entered_in()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var (person, adoptedName, birthName) = await AdoptedPersonAsync(admin);
+
+        var found = await SearchAsync(api.CreateClientFor(Viewer), adoptedName);
+
+        Assert.Equal(adoptedName, Assert.Single(found!.Items).Name);
+        Assert.Equal([adoptedName, birthName], await NamesAsync(admin, person));
+    }
+
+    [Fact]
+    public async Task An_adopted_name_stays_the_main_name_when_they_are_edited()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var (person, adoptedName, birthName) = await AdoptedPersonAsync(admin);
+
+        await admin.PutAsJsonAsync(
+            $"{AdminPeople}/{person}",
+            new { names = new[] { new { givenName = birthName, type = "Birth" }, new { givenName = adoptedName, type = "Adopted" } } },
+            Cancellation);
+
+        Assert.Equal([adoptedName, birthName], await NamesAsync(admin, person));
+    }
+
+    [Fact]
+    public async Task A_married_name_stays_in_front_of_an_adopted_name()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var (marriedName, adoptedName, birthName) = ($"Married{Guid.NewGuid():N}", $"Adopted{Guid.NewGuid():N}", $"Born{Guid.NewGuid():N}");
+        var response = await admin.PostAsJsonAsync(
+            AdminPeople,
+            new { names = new[] { new { givenName = marriedName, type = "Married" }, new { givenName = adoptedName, type = "Adopted" }, new { givenName = birthName, type = "Birth" } } },
+            Cancellation);
+        var person = (await response.Content.ReadFromJsonAsync<Created>(Cancellation))!.Id;
+
+        Assert.Equal([marriedName, adoptedName], await NamesAsync(api.CreateClientFor(Viewer), person));
+    }
+
+    [Fact]
+    public async Task A_viewer_is_not_shown_the_birth_name_of_a_living_adopted_person()
+    {
+        var api = Api();
+        var (person, adoptedName, _) = await AdoptedPersonAsync(api.CreateClientFor(Admin));
+
+        Assert.Equal([adoptedName], await NamesAsync(api.CreateClientFor(Viewer), person));
+    }
+
+    [Fact]
+    public async Task A_viewer_sees_and_finds_a_birth_name_once_an_admin_chooses_to_share_it()
+    {
+        var api = Api();
+        var (person, adoptedName, birthName) = await AdoptedPersonAsync(api.CreateClientFor(Admin), showsBirthName: true);
+        var viewer = api.CreateClientFor(Viewer);
+
+        Assert.Equal([adoptedName, birthName], await NamesAsync(viewer, person));
+        Assert.Equal(person, Assert.Single((await SearchAsync(viewer, birthName))!.Items).Id);
+    }
+
+    [Fact]
+    public async Task An_admin_can_see_that_a_birth_name_is_shared()
+    {
+        var admin = Api().CreateClientFor(Admin);
+        var (person, _, _) = await AdoptedPersonAsync(admin, showsBirthName: true);
+
+        var details = await admin.GetFromJsonAsync<AdminPerson>($"{AdminPeople}/{person}", Cancellation);
+
+        Assert.True(details!.ShowsBirthName);
+    }
+
+    [Fact]
+    public async Task Sharing_a_birth_name_can_be_undone()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var (person, adoptedName, birthName) = await AdoptedPersonAsync(admin, showsBirthName: true);
+
+        await admin.PutAsJsonAsync(
+            $"{AdminPeople}/{person}",
+            new { names = new[] { new { givenName = adoptedName, type = "Adopted" }, new { givenName = birthName, type = "Birth" } }, showsBirthName = false },
+            Cancellation);
+
+        Assert.Equal([adoptedName], await NamesAsync(api.CreateClientFor(Viewer), person));
+    }
+
+    [Fact]
+    public async Task Viewers_are_never_told_that_a_name_is_an_adopted_one()
+    {
+        var api = Api();
+        var (person, _, _) = await AdoptedPersonAsync(api.CreateClientFor(Admin), showsBirthName: true);
+
+        var profile = await api.CreateClientFor(Viewer).GetStringAsync($"{People}/{person}", Cancellation);
+
+        Assert.DoesNotContain("\"type\":\"Adopted\"", profile, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_viewer_cannot_find_a_living_adopted_person_by_the_name_they_were_born_with()
+    {
+        var api = Api();
+        var (person, adoptedName, birthName) = await AdoptedPersonAsync(api.CreateClientFor(Admin));
+        var viewer = api.CreateClientFor(Viewer);
+
+        var byBirthName = await SearchAsync(viewer, birthName);
+        var byAdoptedName = await SearchAsync(viewer, adoptedName);
+
+        Assert.Empty(byBirthName!.Items);
+        Assert.Equal(0, byBirthName.Total);
+        Assert.Equal(person, Assert.Single(byAdoptedName!.Items).Id);
+    }
+
+    [Fact]
+    public async Task An_admin_sees_and_finds_an_adopted_person_by_all_their_names()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var (person, adoptedName, birthName) = await AdoptedPersonAsync(admin);
+
+        Assert.Equal([adoptedName, birthName], await NamesAsync(admin, person));
+        Assert.Equal(person, Assert.Single((await SearchAsync(admin, birthName))!.Items).Id);
+    }
+
+    [Fact]
+    public async Task All_the_names_of_an_adopted_person_are_open_once_they_have_died()
+    {
+        var api = Api();
+        var admin = api.CreateClientFor(Admin);
+        var (person, adoptedName, birthName) = await AdoptedPersonAsync(admin);
+        await AddEventAsync(admin, $"{AdminPeople}/{person}", "Death", "1901");
+        var viewer = api.CreateClientFor(Viewer);
+
+        Assert.Equal([adoptedName, birthName], await NamesAsync(viewer, person));
+        Assert.Equal(person, Assert.Single((await SearchAsync(viewer, birthName))!.Items).Id);
+    }
+
+    [Fact]
+    public async Task A_living_person_who_was_not_adopted_keeps_their_other_names()
+    {
+        var api = Api();
+        var (givenName, marriedName) = ($"Given{Guid.NewGuid():N}", $"Married{Guid.NewGuid():N}");
+        var response = await api.CreateClientFor(Admin).PostAsJsonAsync(
+            AdminPeople,
+            new { names = new[] { new { givenName, type = "Birth" }, new { givenName = marriedName, type = "Married" } } },
+            Cancellation);
+        var person = (await response.Content.ReadFromJsonAsync<Created>(Cancellation))!.Id;
+
+        Assert.Equal([givenName, marriedName], await NamesAsync(api.CreateClientFor(Viewer), person));
     }
 
     [Fact]

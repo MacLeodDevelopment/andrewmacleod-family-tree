@@ -12,7 +12,7 @@ public static class PeopleEndpoints
 
     public sealed record NameRequest(string? GivenName, string? Surname, NameType Type = NameType.Birth);
 
-    public sealed record PersonRequest(IReadOnlyList<NameRequest>? Names, Sex Sex = Sex.Unknown);
+    public sealed record PersonRequest(IReadOnlyList<NameRequest>? Names, Sex Sex = Sex.Unknown, bool ShowsBirthName = false);
 
     public sealed record NameResponse(string GivenName, string? Surname, NameType Type);
 
@@ -22,7 +22,7 @@ public static class PeopleEndpoints
 
     public sealed record EventResponse(Guid Id, EventType Type, string? Date, string? DateAsEntered, string? Place);
 
-    public sealed record PersonResponse(Guid Id, Sex Sex, IReadOnlyList<NameResponse> Names, IReadOnlyList<EventResponse> Events);
+    public sealed record PersonResponse(Guid Id, Sex Sex, IReadOnlyList<NameResponse> Names, bool ShowsBirthName, IReadOnlyList<EventResponse> Events);
 
     public sealed record PeoplePage(IReadOnlyList<PersonResponse> Items, int Total);
 
@@ -49,7 +49,7 @@ public static class PeopleEndpoints
     private static async Task<IResult> CreateAsync(
         PersonRequest request, FamilyTreeDbContext database, CancellationToken cancellationToken, bool allowDuplicate = false)
     {
-        var result = Person.Create(request.Sex, ToNameDetails(request));
+        var result = Person.Create(request.Sex, ToNameDetails(request), request.ShowsBirthName);
         if (!result.IsSuccess)
         {
             return Results.ValidationProblem(result.Errors.ToDictionary());
@@ -83,7 +83,7 @@ public static class PeopleEndpoints
             return Results.NotFound();
         }
 
-        var result = person.Update(request.Sex, ToNameDetails(request));
+        var result = person.Update(request.Sex, ToNameDetails(request), request.ShowsBirthName);
         if (!result.IsSuccess)
         {
             return Results.ValidationProblem(result.Errors.ToDictionary());
@@ -237,6 +237,7 @@ public static class PeopleEndpoints
         person.Names.OrderBy(name => name.Position)
             .Select(name => new NameResponse(name.GivenName, name.Surname, name.Type))
             .ToList(),
+        person.ShowsBirthName,
         person.Timeline
             .Select(lifeEvent => new EventResponse(
                 lifeEvent.Id, lifeEvent.Type, lifeEvent.Date?.Display, lifeEvent.Date?.OriginalText, lifeEvent.Place))

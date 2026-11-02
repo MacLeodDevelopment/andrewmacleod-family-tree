@@ -35,6 +35,8 @@ export function ProfilePage() {
 function ProfileDetails({ profile }: { profile: Profile }) {
   const me = useMe()
   const [main, ...otherNames] = profile.names
+  const birthName = otherNames.find((name) => name.type === 'Birth')
+  const alsoKnownAs = otherNames.filter((name) => name !== birthName)
   const { isPrivate, parents, siblings, partnerships, events } = profile
   const nothingKnown = parents.length === 0 && siblings.length === 0 && partnerships.length === 0
 
@@ -53,9 +55,10 @@ function ProfileDetails({ profile }: { profile: Profile }) {
         )}
       </div>
 
-      {otherNames.length > 0 && (
+      {birthName && <p className="people-list-dates">Born {nameText(birthName)}</p>}
+      {alsoKnownAs.length > 0 && (
         <p className="people-list-dates">
-          Also known as {otherNames.map((name) => `${nameText(name)} (${name.type.toLowerCase()})`).join(', ')}
+          Also known as {alsoKnownAs.map((name) => (name.type ? `${nameText(name)} (${name.type.toLowerCase()})` : nameText(name))).join(', ')}
         </p>
       )}
 
