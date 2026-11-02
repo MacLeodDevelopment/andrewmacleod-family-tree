@@ -8,8 +8,14 @@ import { profilesUrl, summaryDates, type SearchResults } from './profile.ts'
 const searchDelayMs = 250
 const minimumSearchLength = 2
 
-/** Finds anyone in the tree by any of their names. */
-export function SearchPage() {
+/** Finds anyone in the tree by any of their names, and goes to their profile unless told otherwise. */
+export function SearchPage({
+  title = 'Search',
+  linkTo = (id) => `/family/${id}`,
+}: {
+  title?: string
+  linkTo?: (id: string) => string
+}) {
   const api = useApi()
   const [text, setText] = useState('')
   const search = useDebounced(text.trim(), searchDelayMs)
@@ -25,7 +31,7 @@ export function SearchPage() {
 
   return (
     <>
-      <h1>Search</h1>
+      <h1>{title}</h1>
 
       <div className="form">
         <label>
@@ -41,7 +47,7 @@ export function SearchPage() {
         <ul className="people-list">
           {items.map((person) => (
             <li key={person.id}>
-              <Link to={`/family/${person.id}`}>{person.name}</Link>
+              <Link to={linkTo(person.id)}>{person.name}</Link>
               <span className="people-list-dates">{summaryDates(person)}</span>
             </li>
           ))}
