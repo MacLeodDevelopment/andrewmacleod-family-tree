@@ -57,5 +57,6 @@ describe('Static Web App configuration', () => {
 
     expect(navigationFallback.rewrite).toBe('/index.html')
     expect(navigationFallback.exclude).toContain('/assets/*')
+    expect(navigationFallback.exclude).toContain('/fonts/*')
   })
 })

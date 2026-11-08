@@ -50,19 +50,21 @@ export default function App() {
         <Account />
       </header>
       <main className="container">
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/search" element={<RequireMember><SearchPage /></RequireMember>} />
-          <Route path="/family/:id" element={<RequireMember><ProfilePage /></RequireMember>} />
-          <Route path="/tree" element={<RequireMember><TreeStartPage /></RequireMember>} />
-          <Route path="/tree/:id" element={<RequireMember><TreePage /></RequireMember>} />
-          <Route path="/people" element={<RequireAdmin><PeopleListPage /></RequireAdmin>} />
-          <Route path="/people/accounts" element={<RequireAdmin><AccountLinksPage /></RequireAdmin>} />
-          <Route path="/people/new" element={<RequireAdmin><AddPersonPage /></RequireAdmin>} />
-          <Route path="/people/:id" element={<RequireAdmin><PersonPage /></RequireAdmin>} />
-          <Route path="/people/:id/edit" element={<RequireAdmin><EditPersonPage /></RequireAdmin>} />
-          <Route path="*" element={<p role="alert">This page doesn't exist.</p>} />
-        </Routes>
+        <div className="sheet">
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/search" element={<RequireMember><SearchPage /></RequireMember>} />
+            <Route path="/family/:id" element={<RequireMember><ProfilePage /></RequireMember>} />
+            <Route path="/tree" element={<RequireMember><TreeStartPage /></RequireMember>} />
+            <Route path="/tree/:id" element={<RequireMember><TreePage /></RequireMember>} />
+            <Route path="/people" element={<RequireAdmin><PeopleListPage /></RequireAdmin>} />
+            <Route path="/people/accounts" element={<RequireAdmin><AccountLinksPage /></RequireAdmin>} />
+            <Route path="/people/new" element={<RequireAdmin><AddPersonPage /></RequireAdmin>} />
+            <Route path="/people/:id" element={<RequireAdmin><PersonPage /></RequireAdmin>} />
+            <Route path="/people/:id/edit" element={<RequireAdmin><EditPersonPage /></RequireAdmin>} />
+            <Route path="*" element={<p role="alert">This page doesn't exist.</p>} />
+          </Routes>
+        </div>
       </main>
       <footer className="site-footer">
         <p>&copy; Andrew MacLeod</p>

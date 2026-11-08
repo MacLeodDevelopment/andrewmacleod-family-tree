@@ -68,7 +68,7 @@ export function staticWebAppConfig(headers: Record<string, string>) {
     // path that isn't a real file serves the app itself rather than a 404.
     navigationFallback: {
       rewrite: '/index.html',
-      exclude: ['/assets/*', '/*.{svg,png,ico,json,txt}'],
+      exclude: ['/assets/*', '/fonts/*', '/*.{svg,png,ico,json,txt}'],
     },
   }
 }

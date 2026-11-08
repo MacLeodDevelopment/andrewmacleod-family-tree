@@ -338,6 +338,9 @@ Things worth knowing:
 - **Correcting a date starts from `dateAsEntered`,** the text as it was typed ("abt 1870"), not the display version ("c. 1870"), so saving without a change leaves the record as it was.
 - **Last save wins.** Editing has no check for changes made elsewhere since the page loaded. Only one person edits, so it's not needed yet, but it would be if that changes.
 - **No inline styles.** The Content Security Policy has `style-src 'self'`, so a `style={...}` prop would be blocked in production even though it works under `npm run dev`. Use classes in `styles.css`, and try changes with `npm run build` then `npm run preview`.
+- **The look matches andrewmacleod.com.** [`styles.css`](web/src/styles.css) uses the main site's "datasheet" style: every page sits in one ruled panel (`.sheet`, added in `App.tsx`), labels and buttons are in Martian Mono, text is in Schibsted Grotesk, and one orange accent is used only as a fill (the role badge, submit buttons, the focus card in the tree). Keep the two stylesheets in step.
+- **Fonts are self-hosted** in [`web/public/fonts`](web/public/fonts) (Latin only, about 70 KB; licence note in `README.txt`) and preloaded from `index.html`, because the Content Security Policy only allows `font-src 'self'`. `/fonts/*` is excluded from the navigation fallback, so a missing font is a 404 rather than the app.
+- **Tree card text stays in the proportional font.** Names and dates on the cards are cut to fit by character count (`maxNameLength`, `maxDetailLength`), which assumes that font's width. The monospaced one is much wider and would overflow.
 
 ### Search and profiles
 
