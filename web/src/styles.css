@@ -1,35 +1,57 @@
-/* Design tokens ported from andrewmacleod.com (StaticSite/styles/main.css) so the
-   family tree looks like part of the main site. Keep the two in step. */
+/* The "datasheet" style from andrewmacleod.com (StaticSite/styles/main.css), so the
+   family tree looks like part of the main site: a ruled panel, monospaced labels,
+   Schibsted Grotesk for text, Martian Mono for labels, and one orange accent used as
+   a fill only (badges, the focus card, submit buttons), never as text. Keep the two
+   in step. */
+
+/* --------- FONTS (self-hosted in public/fonts, Latin only; see README.txt there) --------- */
+@font-face {
+  font-family: 'Schibsted Grotesk';
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: url('/fonts/schibsted-grotesk-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Martian Mono';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('/fonts/martian-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* --------- TOKENS AND COLOUR MODES --------- */
 :root {
-  --bg: #ffffff;
-  --text: #111111;
-  --muted: #444444;
-  --link: #1a73e8;
-  --header-bg: #f0f4ff;
-  --card-bg: #ffffff;
-  --border: #d0d0d0;
-  --footer-bg: #e6f0ff;
-  --focus: #1a73e8;
-  --shadow: rgba(0, 0, 0, 0.05);
-  --max-width: min(900px, 90%);
-  --radius: 0.5rem;
-  --header-height: 64px;
-  --success: #1e7d32;
+  --bg: #e8e8e4;
+  --panel: #f5f5f2;
+  --ink: #111111;
+  --muted: #55565a;
+  --line: #111111;
+  --hair: #c9c9c3;
+  --orange: #ff5a1f;
+  --on-orange: #111111;
+  --focus: #ff5a1f;
+  --success: #1e6b2c;
   --danger: #b3261e;
+  --max-width: min(1100px, 94%);
+  --header-height: 60px;
+  --sheet-padding: clamp(1rem, 3vw, 2rem);
+  --sans: 'Schibsted Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'Martian Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b0b10;
-    --text: #e6eef8;
-    --muted: #cfd8e3;
-    --link: #7ab4ff;
-    --header-bg: #0f1220;
-    --card-bg: #111219;
-    --border: #22242a;
-    --footer-bg: #07070a;
-    --focus: #7ab4ff;
-    --shadow: rgba(0, 0, 0, 0.6);
+    --bg: #0e0e0e;
+    --panel: #171717;
+    --ink: #ececea;
+    --muted: #a2a29d;
+    --line: #3a3a38;
+    --hair: #2a2a28;
     --success: #7fd48a;
     --danger: #ff8a80;
   }
@@ -37,20 +59,22 @@
 
 @media (prefers-contrast: more) {
   :root {
-    --border: #9aa0a6;
-    --shadow: rgba(0, 0, 0, 0.12);
+    --muted: var(--ink);
+    --hair: var(--ink);
+    --line: var(--ink);
   }
 }
 
 @media (forced-colors: active) {
   :root {
     --bg: Canvas;
-    --text: CanvasText;
-    --link: Highlight;
-    --header-bg: Canvas;
-    --card-bg: Canvas;
-    --border: Highlight;
-    --footer-bg: Canvas;
+    --panel: Canvas;
+    --ink: CanvasText;
+    --muted: CanvasText;
+    --line: CanvasText;
+    --hair: CanvasText;
+    --orange: Highlight;
+    --on-orange: HighlightText;
     --focus: Highlight;
     --success: CanvasText;
     --danger: CanvasText;
@@ -70,17 +94,16 @@
   padding: 0;
 }
 
-html,
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  font-size: 16px;
-  line-height: 1.7;
-  color: var(--text);
+  font: 400 1rem/1.55 var(--sans);
+  color: var(--ink);
   background-color: var(--bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color-scheme: light dark;
-  -webkit-text-size-adjust: 100%;
 }
 
 #root {
@@ -90,53 +113,80 @@ body {
 }
 
 a {
-  color: var(--link);
-  text-decoration: none;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--muted);
+  text-underline-offset: 0.2em;
 }
 
-a:hover,
-a:focus {
-  text-decoration: underline;
+a:hover {
+  text-decoration-color: var(--orange);
+  text-decoration-thickness: 2px;
 }
 
 :focus-visible {
   outline: 3px solid var(--focus);
-  outline-offset: 3px;
+  outline-offset: 2px;
+}
+
+/* Small monospaced label text. */
+.label {
+  font: 400 0.72rem/1.5 var(--mono);
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 /* --------- LAYOUT --------- */
 .site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem 1rem;
+  gap: 0.5rem 1.5rem;
   min-height: var(--header-height);
-  padding: 1rem 2rem;
-  background-color: var(--header-bg);
-  border-bottom: 2px solid var(--border);
+  padding: 0.5rem max(3%, 1rem);
+  background-color: var(--bg);
+  border-bottom: 1px solid var(--line);
 }
 
-.container {
+main.container {
   flex: 1;
   width: var(--max-width);
   margin: 0 auto;
-  padding: 2rem 0;
+  padding: 1.5rem 0;
+}
+
+/* The ruled panel every page sits in. */
+.sheet {
+  min-width: 0;
+  padding: var(--sheet-padding);
+  border: 1px solid var(--line);
+  background-color: var(--panel);
 }
 
 h1 {
-  font-size: clamp(2rem, 6vw, 3rem);
+  font-size: clamp(2rem, 5vw, 3.2rem);
   font-weight: 800;
-  line-height: 1.2;
+  letter-spacing: -0.04em;
+  line-height: 1;
   margin-bottom: 1rem;
+  overflow-wrap: anywhere;
 }
 
 .site-footer {
-  text-align: center;
-  padding: 2rem 0;
-  font-size: 0.95rem;
-  border-top: 2px solid var(--border);
-  background-color: var(--footer-bg);
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 0 2rem;
+  font: 400 0.72rem/1.5 var(--mono);
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 /* --------- ACCOUNT --------- */
@@ -158,19 +208,20 @@ h1 {
 .role-badge {
   display: inline-grid;
   place-items: center;
-  min-height: 1.75em;
-  padding: 0 0.65rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background-color: var(--card-bg);
-  font-size: 0.85em;
-  line-height: 1.6;
+  min-height: 1.9em;
+  padding: 0 0.55rem;
+  background-color: var(--orange);
+  color: var(--on-orange);
+  font: 500 0.66rem/1.6 var(--mono);
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
 .role-badge--problem {
+  background-color: transparent;
   color: var(--danger);
-  border-color: var(--danger);
+  outline: 1px solid var(--danger);
+  outline-offset: -1px;
 }
 
 .role-badge::before {
@@ -187,8 +238,8 @@ h1 {
 .spinner {
   width: 0.9em;
   height: 0.9em;
-  border: 2px solid var(--border);
-  border-top-color: var(--link);
+  border: 2px solid var(--on-orange);
+  border-top-color: transparent;
   border-radius: 50%;
   animation:
     spin 0.8s linear infinite,
@@ -239,6 +290,125 @@ h1 {
   line-height: 1.35;
 }
 
+.account-name,
+.account-username {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-name {
+  font-weight: 700;
+}
+
+/* Second line: the username takes whatever space is left; the badge is pinned to the
+   right, so it doesn't move with the username's length. */
+.account-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.5rem;
+  font-size: 0.9em;
+}
+
+.account-username {
+  color: var(--muted);
+}
+
+/* --------- BUTTONS --------- */
+/* Buttons, and links that do what a button does (.button), share one look: square,
+   ruled, with a monospaced label. Submit buttons are filled orange. */
+button,
+.button {
+  display: inline-block;
+  font: 500 0.72rem/1.5 var(--mono);
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--ink);
+  background-color: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+}
+
+button:hover,
+.button:hover {
+  background-color: var(--ink);
+  color: var(--bg);
+  text-decoration: none;
+}
+
+button[type='submit'] {
+  background-color: var(--orange);
+  color: var(--on-orange);
+  border-color: var(--orange);
+}
+
+button[type='submit']:hover {
+  background-color: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+
+button:disabled,
+button:disabled:hover {
+  cursor: default;
+  opacity: 0.6;
+  background-color: var(--panel);
+  color: var(--ink);
+}
+
+button[type='submit']:disabled:hover {
+  background-color: var(--orange);
+  color: var(--on-orange);
+}
+
+button.small {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.66rem;
+}
+
+/* --------- NAVIGATION --------- */
+.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 1.25rem;
+}
+
+.site-nav a {
+  font: 500 0.72rem/1.5 var(--mono);
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
+.site-nav a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--orange);
+  text-decoration-thickness: 2px;
+}
+
+.site-nav a.site-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-right: 0.5rem;
+  font: 800 1rem/1.2 var(--sans);
+  letter-spacing: -0.01em;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+/* The orange square from the main site's header. */
+.site-title::before {
+  content: '';
+  flex: none;
+  width: 14px;
+  height: 14px;
+  background-color: var(--orange);
+}
+
 /* On phones there isn't room for the card beside the button, so the header becomes
    two rows: the title and the button on top, the card across the full width below.
    (`display: contents` lets the card and button, which share a wrapper, be placed in
@@ -255,8 +425,7 @@ h1 {
 
   .site-nav {
     grid-area: title;
-    gap: 0.25rem 0.6rem;
-    font-size: 0.9rem;
+    gap: 0.25rem 0.9rem;
   }
 
   .account {
@@ -275,59 +444,27 @@ h1 {
   }
 }
 
-.account-name,
-.account-username {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Second line: the username takes whatever space is left; the badge is pinned to the
-   right, so it doesn't move with the username's length. */
-.account-meta {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: 0.5rem;
-  font-size: 0.9em;
-}
-
-.account-username {
-  color: var(--muted);
-}
-
-button {
-  font: inherit;
-  color: var(--text);
-  background-color: var(--card-bg);
-  border: 2px solid var(--border);
-  border-radius: var(--radius);
-  padding: 0.35rem 1rem;
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: var(--link);
-}
-
-/* --------- NAVIGATION --------- */
-.site-nav {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 1.25rem;
-}
-
-.site-title {
-  color: var(--text);
-  font-weight: 700;
-  white-space: nowrap;
-}
-
 /* --------- PAGES --------- */
 h2 {
   font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
   margin: 2rem 0 0.75rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+/* A small monospaced label, like the section labels on the main site. */
+h3 {
+  font: 500 0.72rem/1.5 var(--mono);
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 1.25rem 0 0.4rem;
+}
+
+p + p {
+  margin-top: 0.75rem;
 }
 
 .page-heading {
@@ -343,28 +480,9 @@ h2 {
   margin-bottom: 0;
 }
 
-/* A link that does what a button does. */
-.button {
-  display: inline-block;
-  color: var(--text);
-  background-color: var(--card-bg);
-  border: 2px solid var(--border);
-  border-radius: var(--radius);
-  padding: 0.35rem 1rem;
-}
-
-.button:hover {
-  border-color: var(--link);
-  text-decoration: none;
-}
-
-button:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
 .people-list {
   list-style: none;
+  border-top: 1px solid var(--line);
 }
 
 .people-list li {
@@ -372,8 +490,8 @@ button:disabled {
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 0 1rem;
-  padding: 0.6rem 0;
-  border-bottom: 1px solid var(--border);
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--hair);
 }
 
 .people-list-dates,
@@ -385,21 +503,34 @@ button:disabled {
 
 .people-count {
   margin-top: 0.75rem;
+  font: 400 0.72rem/1.5 var(--mono);
+  text-transform: uppercase;
 }
 
 .page-buttons {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 1rem;
 }
 
+/* Facts about a person: a ruled two-column table, labels on the left. */
 .person-facts {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: 0.25rem 1rem;
+  border-bottom: 1px solid var(--hair);
+}
+
+.person-facts dt,
+.person-facts dd {
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--hair);
 }
 
 .person-facts dt {
+  padding-right: 1.5rem;
+  font: 400 0.72rem/2 var(--mono);
+  text-transform: uppercase;
   color: var(--muted);
 }
 
@@ -407,13 +538,21 @@ button:disabled {
   grid-column: 2;
 }
 
+/* A fact with several values (such as names) has one dt and several dd: only the
+   first value is ruled off from the row above. */
+.person-facts dd + dd {
+  border-top: 0;
+  padding-top: 0;
+}
+
 .timeline {
   list-style: none;
+  border-top: 1px solid var(--line);
 }
 
 .timeline li {
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--border);
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--hair);
   overflow-wrap: anywhere;
 }
 
@@ -441,22 +580,13 @@ button:disabled {
   margin-top: 0.5rem;
 }
 
-button.small {
-  font-size: 0.85rem;
-  padding: 0.1rem 0.6rem;
-}
-
-h3 {
-  font-size: 1.05rem;
-  margin: 1.25rem 0 0.25rem;
-}
-
 .relatives {
   list-style: none;
 }
 
 .relatives li {
-  padding: 0.2rem 0;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--hair);
   overflow-wrap: anywhere;
 }
 
@@ -486,17 +616,23 @@ h3 {
 }
 
 /* --------- TREE --------- */
-/* Wider than the text column when there's room, so a big tree needs less scrolling. */
+/* Edge to edge across the panel, so a big tree needs less scrolling. Ruled off
+   above and below rather than boxed, as the panel's own border is its sides. */
 .tree-scroller {
   overflow-x: auto;
-  margin: 1rem calc(50% - min(48vw, 700px));
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  margin: 1rem calc(-1 * var(--sheet-padding));
+  border-block: 1px solid var(--line);
+  background-color: var(--bg);
 }
 
 .tree-scroller svg {
   display: block;
   margin: 0 auto;
+}
+
+/* The cards are links, but the card outline shows that: no underlined text. */
+.tree-scroller a {
+  text-decoration: none;
 }
 
 .tree-line {
@@ -517,14 +653,16 @@ h3 {
   stroke-dasharray: 2 4;
 }
 
+/* Square cards, like the panels. (rx as a CSS property overrides the SVG attribute.) */
 .tree-card {
-  fill: var(--card-bg);
-  stroke: var(--border);
-  stroke-width: 2;
+  rx: 0;
+  fill: var(--panel);
+  stroke: var(--line);
+  stroke-width: 1.5;
 }
 
 .tree-card--focus {
-  stroke: var(--link);
+  stroke: var(--orange);
   stroke-width: 3;
 }
 
@@ -534,7 +672,7 @@ h3 {
 }
 
 a:hover .tree-card {
-  stroke: var(--link);
+  stroke: var(--orange);
 }
 
 a:focus-visible .tree-card {
@@ -542,14 +680,18 @@ a:focus-visible .tree-card {
   stroke-width: 4;
 }
 
+/* Names and dates are cut to fit by character count (TreePage.tsx, hourglassLayout.ts),
+   so they stay in the proportional font: the monospaced one is much wider. */
 .tree-card-name {
-  fill: var(--text);
+  fill: var(--ink);
+  font-family: var(--sans);
   font-size: 0.9rem;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .tree-card-dates {
   fill: var(--muted);
+  font-family: var(--sans);
   font-size: 0.75rem;
 }
 
@@ -558,8 +700,9 @@ a:focus-visible .tree-card {
   flex-wrap: wrap;
   gap: 0.25rem 1.25rem;
   list-style: none;
+  font: 400 0.68rem/1.5 var(--mono);
+  text-transform: uppercase;
   color: var(--muted);
-  font-size: 0.85rem;
 }
 
 .tree-legend li {
@@ -571,7 +714,7 @@ a:focus-visible .tree-card {
 /* --------- FORMS --------- */
 .form {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.9rem;
   max-width: 32rem;
   margin-top: 1.5rem;
 }
@@ -579,6 +722,11 @@ a:focus-visible .tree-card {
 .form h2,
 .form h3 {
   margin: 0;
+}
+
+.form h2 {
+  padding-top: 0;
+  border-top: 0;
 }
 
 .form fieldset.picker {
@@ -603,44 +751,54 @@ a:focus-visible .tree-card {
   gap: 0.75rem;
   min-width: 0;
   padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: 1px solid var(--line);
 }
 
 .form legend {
   padding: 0 0.4rem;
-  font-weight: 600;
+  font: 500 0.72rem/1.5 var(--mono);
+  text-transform: uppercase;
 }
 
 .form label {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.25rem;
+  font-weight: 600;
 }
 
 .form input,
 .form select {
   width: 100%;
-  font: inherit;
-  color: var(--text);
-  background-color: var(--card-bg);
-  border: 2px solid var(--border);
-  border-radius: var(--radius);
-  padding: 0.35rem 0.6rem;
+  font: 400 1rem var(--sans);
+  color: var(--ink);
+  background-color: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.5rem 0.6rem;
+}
+
+.form input:focus-visible,
+.form select:focus-visible {
+  outline-offset: 0;
 }
 
 .form .form-checkbox {
   display: flex;
   gap: 0.5rem;
   align-items: baseline;
+  font-weight: 400;
 }
 
 .form .form-checkbox input {
   width: auto;
   flex: none;
+  accent-color: var(--orange);
 }
 
 .form input[aria-invalid='true'] {
   border-color: var(--danger);
+  outline: 1px solid var(--danger);
+  outline-offset: -2px;
 }
 
 .form > button,
@@ -655,15 +813,21 @@ a:focus-visible .tree-card {
   gap: 0.75rem;
 }
 
+/* A row of plain links (such as "Back to people") reads as a small label line. */
+p.form-buttons > a {
+  font: 500 0.72rem/1.5 var(--mono);
+  text-transform: uppercase;
+}
+
 .field-error {
   color: var(--danger);
 }
 
 .notice {
   padding: 1rem;
-  border: 2px solid var(--border);
-  border-radius: var(--radius);
-  background-color: var(--card-bg);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--orange);
+  background-color: var(--bg);
 }
 
 .notice ul {
@@ -685,6 +849,8 @@ a:focus-visible .tree-card {
 /* --------- API STATUS --------- */
 .api-status {
   margin-top: 1.5rem;
+  font: 400 0.72rem/1.5 var(--mono);
+  text-transform: uppercase;
   color: var(--muted);
 }
 
